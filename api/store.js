@@ -16,7 +16,12 @@ const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const KV_MODE = Boolean(KV_REST_URL && KV_REST_TOKEN);
 const BLOB_MODE = !KV_MODE && Boolean(BLOB_READ_WRITE_TOKEN);
 
-export const STORAGE_MODE = KV_MODE ? 'vercel-kv' : (BLOB_MODE ? 'vercel-blob' : 'unavailable');
+// Tests run without credentials. This switch points the same code paths at a map, so the
+// suite exercises the logic rather than the driver.
+const MEMORY_MODE = process.env.SESSIA_STORE_MODE === 'memory';
+const memory = new Map();
+
+export const STORAGE_MODE = KV_MODE ? 'vercel-kv' : (BLOB_MODE ? 'vercel-blob' : (MEMORY_MODE ? 'memory' : 'unavailable'));
 export const KV_AVAILABLE = STORAGE_MODE !== 'unavailable';
 
 const OBSERVATION_LIMIT = 288; // 24 hours at one sample every 5 minutes
@@ -70,7 +75,10 @@ async function blobRead(key) {
 
 async function readKey(key) {
   let value = null;
-  if (KV_MODE) {
+  if (MEMORY_MODE) {
+    value = memory.get(key) ?? null;
+    if (value && value.expiresAt && Date.now() > value.expiresAt) { memory.delete(key); value = null; }
+  } else if (KV_MODE) {
     const raw = await kvRequest('get', key);
     if (raw) { try { value = JSON.parse(raw); } catch { value = null; } }
   } else if (BLOB_MODE) {
@@ -81,6 +89,10 @@ async function readKey(key) {
 }
 
 async function writeKey(key, value, ttlSeconds) {
+  if (MEMORY_MODE) {
+    memory.set(key, ttlSeconds ? { ...value, expiresAt: Date.now() + ttlSeconds * 1000 } : value);
+    return true;
+  }
   if (KV_MODE) {
     const result = ttlSeconds
       ? await kvRequest('setex', key, String(ttlSeconds), JSON.stringify(value))
@@ -94,6 +106,7 @@ async function writeKey(key, value, ttlSeconds) {
 }
 
 export async function deleteKey(key) {
+  if (MEMORY_MODE) { memory.delete(key); return; }
   if (KV_MODE) { await kvRequest('del', key); return; }
   if (BLOB_MODE) {
     try { await del(pathnameFor(key)); return; } catch { /* fall through to tombstone */ }

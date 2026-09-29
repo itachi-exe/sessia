@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
+
+// The store has no memory fallback in production on purpose. The suite turns it on so the
+// link logic is exercised without touching a network store.
+process.env.SESSIA_STORE_MODE = 'memory';
+const {
   setLinkCode, takeLinkCode, setChatWallet, getChatWallet, getWalletChat, clearChatWallet,
   conversationKeyFor,
-} from '../api/store.js';
+} = await import('../api/store.js');
 
 const ADDRESS = '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063';
 
