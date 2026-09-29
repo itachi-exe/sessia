@@ -132,6 +132,21 @@ export const TOKENS = {
 export const SUPPORTED_TICKERS = Object.keys(TOKENS);
 
 // Resolve ticker from user input (case insensitive, common aliases)
+// Names people actually type when they mean a ticker: "monitor NVIDIA", "is Tesla
+// cheap". Kept here so every surface (commands, Telegram chat, the web agent)
+// resolves the same word to the same asset.
+const COMPANY_NAMES = {
+  NVIDIA: 'NVDA',
+  TESLA: 'TSLA',
+  FACEBOOK: 'META',
+  INSTAGRAM: 'META',
+  MICROSOFT: 'MSFT',
+  PALANTIR: 'PLTR',
+  NASDAQ: 'QQQ',
+  NASDAQ100: 'QQQ',
+  SPACEX: 'SPCX',
+};
+
 export function resolveTicker(input) {
   const upper = String(input || '').toUpperCase().trim()
     .replace(/^(NVDAB|NVDAX|NVIDIASTOCK)$/, 'NVDA')
@@ -141,7 +156,9 @@ export function resolveTicker(input) {
     .replace(/^(PLTRB|PLTRX)$/, 'PLTR')
     .replace(/^(QQQB|QQQX)$/, 'QQQ')
     .replace(/^(SPCXB|SPCXX)$/, 'SPCX');
-  return TOKENS[upper] ? upper : null;
+  if (TOKENS[upper]) return upper;
+  const named = COMPANY_NAMES[upper];
+  return named && TOKENS[named] ? named : null;
 }
 
 // Encode eth_call for latestRoundData()

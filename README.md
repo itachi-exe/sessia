@@ -153,8 +153,10 @@ Run against the live deployment and the chain, not against fixtures:
 - Cron: `sessia-cron` under pm2 returns 200 every five minutes (`pricesChecked=7`).
 - Telegram: `POST /api/telegram/setup` returned `webhookConfigured: true` for `Sessia_BNBAI_bot`.
 - Conversational layer: a free-text question sent through the production webhook came back with live figures (oracle, pool, gap) and both turns were read back from Blob by a separate process. Follow-up questions resolve against the stored turns; with `DEEPSEEK_API_KEY` absent the bot falls back to the command list.
+- Name and intent handling: `NVIDIA`, `Tesla`, `Nasdaq` and the on-chain symbols all resolve to the same asset, and a message that asks to monitor an asset sets the alert rule (`watchlist = {"tickers":["NVDA"],"thresholdPct":1.5,"alertSession":"all"}` read back from Blob) instead of describing it.
+- Web agent: `POST /api/ask` on the live deployment returned a grounded answer with its evidence list, and a browser run of `/agent.html` produced a live-price reply with no console errors. The landing page strip now reads the APRO feed instead of hardcoded demo prices.
 - Token registry: every enabled address was read on-chain (symbol, decimals, deepest V3 pool, live price) before being written into `public/data.mjs`.
-- Test suite: 19 tests, 19 passing.
+- Test suite: 23 tests, 23 passing.
 
 ---
 

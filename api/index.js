@@ -2,9 +2,9 @@ import { runMonitoringCycle } from './monitor.js';
 import {
   getWatchlist, setWatchlist, deleteWatchlist,
   addMonitoredChat, removeMonitoredChat, KV_AVAILABLE, STORAGE_MODE, probeStorage,
-  getChatHistory, appendChatMessage,
+  getChatHistory, appendChatMessage, bumpAskUsage,
 } from './store.js';
-import { chatEnabled, chatReply } from './chat.js';
+import { chatEnabled, chatReply, gatherEvidence } from './chat.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
@@ -70,7 +70,7 @@ async function handleBotMessage(chatId, text, username) {
     } else {
       await reply(chatId,
         `👋 *Sessia* — Personalized Research Agent for Tokenized Stocks on BNB Chain.\n\n` +
-        `I monitor bStocks, xStocks, and Ondo assets across BNB Chain and alert you when something unusual happens.\n\n` +
+        `I watch seven tokenized stocks on BNB Chain, priced by the APRO on-chain feed and the PancakeSwap pools where they trade, and I alert you when a price drifts.\n\n` +
         `*Supported assets:*\n${tickerList()}\n\n` +
         `To start, tell me what to watch:\n` +
         `_/watch NVDA TSLA_\n\n` +
@@ -268,6 +268,23 @@ async function handleBotMessage(chatId, text, username) {
   // Anything it states is grounded in the same on-chain reads the commands use,
   // and a failed or missing model call falls through to the command list below.
   const mentionedTickers = parseTickers(text);
+
+  // Natural language watch: "monitor NVIDIA and alert me if anything goes wrong".
+  // An action beats a paragraph, so this sets the rule instead of describing it.
+  // Guarded against questions ("should I watch NVDA?") which belong to the chat.
+  const asksToWatch = /\b(monitor|watch|track|alert|notify|keep an eye|let me know)\b/i.test(text);
+  const opensAsQuestion = /^\s*(should|would|could|why|what|how|when|whether|is|are|does|do|can)\b/i.test(text);
+  if (asksToWatch && !opensAsQuestion && mentionedTickers.length && KV_AVAILABLE) {
+    const existing = await getWatchlist(chatId) ?? {};
+    const thresholdPct = parseThreshold(text) ?? existing.thresholdPct ?? 1.5;
+    const tickers = [...new Set([...(existing.tickers ?? []), ...mentionedTickers])];
+    await setWatchlist(chatId, { ...existing, tickers, alertSession: existing.alertSession ?? 'all', thresholdPct });
+    await addMonitoredChat(chatId);
+    const prices = await Promise.all(tickers.map((ticker) => getOraclePrice(ticker).then((p) => p?.price ?? null).catch(() => null)));
+    const now = tickers.map((ticker, i) => (prices[i] ? `${ticker} $${Number(prices[i]).toFixed(2)}` : ticker)).join(', ');
+    await reply(chatId, `Watching *${tickers.join(', ')}*. Right now: ${now}. I stay quiet unless one moves ${thresholdPct}% from its reference price, any session. Change the bar with /threshold ${thresholdPct}.`);
+    return;
+  }
   if (chatEnabled()) {
     const chatWatchlist = await getWatchlist(chatId);
     const history = await getChatHistory(chatId);
@@ -392,6 +409,45 @@ async function handlePriceApi(request, response, url) {
   sendJson(response, oracle ? 200 : 503, { ok: Boolean(oracle), ticker: resolved, oracle, session });
 }
 
+// ---------------------------------------------------------------- web agent
+
+const ASK_MAX_CHARS = 400;
+const ASK_DAILY_LIMIT = 25;
+
+function clientIp(request) {
+  const forwarded = request.headers['x-forwarded-for'];
+  return String(Array.isArray(forwarded) ? forwarded[0] : (forwarded || 'unknown')).split(',')[0].trim();
+}
+
+// The site's agent page posts here. Same grounded answer the Telegram bot gives,
+// with the raw reads returned alongside so the page can show its work.
+async function handleAskApi(request, response) {
+  const raw = await readBody(request);
+  let payload = null;
+  try { payload = JSON.parse(raw || '{}'); } catch { payload = null; }
+  const message = String(payload?.message ?? '').trim().slice(0, ASK_MAX_CHARS);
+  if (message.length < 2) {
+    sendJson(response, 400, { ok: false, message: 'Ask about one of the supported assets.' });
+    return;
+  }
+  if (!chatEnabled()) {
+    sendJson(response, 503, { ok: false, message: 'The agent is not configured right now.' });
+    return;
+  }
+  const quota = await bumpAskUsage(clientIp(request), ASK_DAILY_LIMIT);
+  if (!quota.allowed) {
+    sendJson(response, 429, { ok: false, message: `That is the daily limit (${quota.limit}) for this connection. The Telegram bot has no limit.` });
+    return;
+  }
+  const evidence = await gatherEvidence(message, null);
+  const reply = await chatReply({ text: message, watchlist: null, history: [], evidence });
+  if (!reply) {
+    sendJson(response, 503, { ok: false, message: 'The agent could not answer just now. Try again in a moment.' });
+    return;
+  }
+  sendJson(response, 200, { ok: true, reply, evidence: evidence.slice(1), reads: quota.used, limit: quota.limit });
+}
+
 export default async function handler(request, response) {
   try {
     const url = new URL(request.url, 'https://sessia-beta.vercel.app');
@@ -404,6 +460,7 @@ export default async function handler(request, response) {
         storageMode: storage.mode,
         storageReady: storage.ready,
         telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+        agent: chatEnabled(),
         kvConfigured: KV_AVAILABLE,
         walletExecution: false,
         supportedAssets: SUPPORTED_TICKERS,
@@ -422,6 +479,9 @@ export default async function handler(request, response) {
     }
     if (url.pathname === '/api/price') {
       await handlePriceApi(request, response, url); return;
+    }
+    if (url.pathname === '/api/ask' && request.method === 'POST') {
+      await handleAskApi(request, response); return;
     }
 
     response.writeHead(302, { location: '/index.html', 'cache-control': 'no-store' }); response.end();

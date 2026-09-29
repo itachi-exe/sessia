@@ -2,10 +2,24 @@
 //
 // The model is DeepSeek, but it never supplies a number. Every price in an answer
 // comes from the same on-chain reads the commands use (APRO oracle feed plus the
-// deepest PancakeSwap V3 pool), injected as CONTEXT. No key, no chat: the caller
+// deepest PancakeSwap V3 pool), injected as live notes. No key, no chat: the caller
 // falls back to the command list rather than pretending to answer.
 
-import { getOraclePrice, getPancakeQuote, TOKENS, SUPPORTED_TICKERS } from '../public/data.mjs';
+import { getOraclePrice, getPancakeQuote, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
+
+// Assets priced when the question names none and the caller watches none.
+const DEFAULT_BOARD = ['NVDA', 'TSLA'].filter((ticker) => SUPPORTED_TICKERS.includes(ticker));
+
+// Every word goes through the shared alias table, so "NVIDIA", "NVDA", "NVDAB"
+// and "nvidia" all land on the same asset.
+function scanTickers(text) {
+  const found = [];
+  for (const word of String(text || '').split(/[^A-Za-z0-9]+/)) {
+    const ticker = resolveTicker(word);
+    if (ticker && !found.includes(ticker)) found.push(ticker);
+  }
+  return found;
+}
 
 const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 // deepseek-chat is the non-reasoning model: faster, and it cannot burn the token
@@ -30,15 +44,16 @@ const RULES = [
   'The notes below are live reads, not estimates. When an asset carries both a feed price and a pool price, the gap between them is the interesting part.',
 ].join('\n');
 
-async function buildContext(text, watchlist) {
-  const lines = [`Supported assets: ${SUPPORTED_TICKERS.join(', ')}`];
+export async function gatherEvidence(text, watchlist) {
+  const lines = [`Supported assets: ${SUPPORTED_TICKERS.join(', ')}`, `US market: ${getMarketSession().label}`];
   if (watchlist?.tickers?.length) {
     lines.push(`Caller watchlist: ${watchlist.tickers.join(', ')} at ${watchlist.thresholdPct ?? 1.5}% threshold, sessions ${watchlist.alertSession ?? 'all'}`);
   }
-  const named = SUPPORTED_TICKERS.filter((ticker) => new RegExp(`\\b${ticker}(?:B|x)?\\b`, 'i').test(text));
-  // Nothing named in the question: price whatever the caller watches instead of answering blind.
+  const named = scanTickers(text);
+  // Nothing named: price whatever the caller watches, and failing that the default
+  // board, so a general question still gets real numbers instead of a shrug.
   const watched = (watchlist?.tickers ?? []).filter((ticker) => SUPPORTED_TICKERS.includes(ticker));
-  const mentioned = (named.length ? named : watched).slice(0, MAX_MENTIONED);
+  const mentioned = (named.length ? named : (watched.length ? watched : DEFAULT_BOARD)).slice(0, MAX_MENTIONED);
   for (const ticker of mentioned) {
     const onchain = TOKENS[ticker]?.bstocks?.symbol;
     lines.push(`${ticker}${onchain ? ` (the token itself trades as ${onchain})` : ''}: ${await describeAsset(ticker)}`);
@@ -54,20 +69,20 @@ async function describeAsset(ticker) {
     address ? getPancakeQuote(address).catch(() => null) : Promise.resolve(null),
   ]);
   const parts = [];
-  if (oracle) parts.push(`APRO oracle $${oracle.price} (${oracle.ageMinutes ?? '?'} min old, session ${oracle.session ?? 'unknown'})`);
-  if (quote) parts.push(`PancakeSwap V3 pool $${quote.pricePerToken.toFixed(4)} (${quote.poolFeePct}% tier, ${(quote.priceImpactPct ?? 0).toFixed(4)}% impact on $100)`);
+  if (oracle) parts.push(`APRO oracle $${Number(oracle.price).toFixed(2)} (feed updated ${Math.round((oracle.ageSeconds ?? 0) / 60)} min ago)`);
+  if (quote) parts.push(`PancakeSwap V3 pool $${quote.pricePerToken.toFixed(2)} (${quote.poolFeePct}% tier, ${(quote.priceImpactPct ?? 0).toFixed(2)}% impact on $100)`);
   if (oracle && quote) {
     const gap = ((oracle.price - quote.pricePerToken) / quote.pricePerToken) * 100;
-    parts.push(`oracle sits ${gap >= 0 ? '+' : ''}${gap.toFixed(3)}% ${gap >= 0 ? 'above' : 'below'} the pool`);
+    parts.push(`oracle sits ${gap >= 0 ? '+' : ''}${gap.toFixed(2)}% ${gap >= 0 ? 'above' : 'below'} the pool`);
   }
   if (!parts.length) parts.push('no live price available right now');
   return parts.join('; ');
 }
 
-export async function chatReply({ text, watchlist, history }) {
+export async function chatReply({ text, watchlist, history, evidence }) {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) return null;
-  const system = [RULES, 'CONTEXT:', ...(await buildContext(text, watchlist))].join('\n');
+  const system = [RULES, 'LIVE NOTES:', ...(evidence ?? (await gatherEvidence(text, watchlist)))].join('\n');
   const messages = [
     { role: 'system', content: system },
     ...(Array.isArray(history) ? history.slice(-6) : []),

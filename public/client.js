@@ -1,5 +1,6 @@
 import { buildInvestigation, simulateTrade } from './research-engine.mjs';
 import { createSessiaStore, parseMonitoringRule } from './sessia-store.mjs';
+import { TOKENS } from './data.mjs';
 import { connectWallet, shortenAddress } from './wallet.mjs';
 import { installGlobalErrorHandling, safeErrorMessage } from './error-handling.mjs';
 
@@ -37,7 +38,7 @@ $('#rule-form').addEventListener('submit', (event) => {
   event.preventDefault();
   try {
     const rule = parseMonitoringRule($('#rule-input').value);
-    const asset = store.addAsset({ ticker: rule.ticker, representation: $('#representation').value, issuer: $('#issuer').value, session: rule.session });
+    const asset = store.addAsset({ ticker: rule.ticker, representation: TOKENS[rule.ticker]?.bstocks?.symbol ?? 'ORACLE FEED', issuer: 'bStocks', session: rule.session });
     store.saveRule({ assetId: asset.id, thresholdPct: rule.thresholdPct, session: rule.session, notify: true });
     event.currentTarget.reset(); renderWatchlist(); toast(`${asset.ticker} monitoring is active in this browser.`);
   } catch { toast('Check the asset and alert threshold, then try again.'); }
@@ -71,3 +72,24 @@ $('#prepare').addEventListener('click', () => toast('No transaction was created.
 $('#demo-trigger').addEventListener('click', () => { document.querySelector('#research').scrollIntoView({ behavior: 'smooth' }); toast('Recorded NVDA investigation loaded.'); });
 refreshSimulation(); renderWatchlist();
 installGlobalErrorHandling(() => toast('Something did not load. Please try again.'));
+
+// The investigation on this page is a recorded scenario. This strip is not: it reads
+// the APRO feed through /api/price, the same source the agent and the bot use.
+async function refreshTickerStrip() {
+  const strip = $('.ticker');
+  if (!strip) return;
+  const live = await Promise.all(['NVDA', 'TSLA', 'PLTR'].map(async (ticker) => {
+    try {
+      const response = await fetch(`/api/price?ticker=${ticker}`, { cache: 'no-store' });
+      const data = await response.json();
+      if (!data?.ok || !data.oracle?.price) return null;
+      return { ticker, price: Number(data.oracle.price), session: data.session?.label ?? '' };
+    } catch { return null; }
+  }));
+  if (!live.some(Boolean)) return;
+  strip.innerHTML = '<span>LIVE / APRO FEED</span>' + live
+    .filter(Boolean)
+    .map((entry) => `<strong>${entry.ticker}</strong><b>$${entry.price.toFixed(2)}</b><em>${escapeHtml(entry.session)}</em>`)
+    .join('<span class="divider"></span>');
+}
+refreshTickerStrip();

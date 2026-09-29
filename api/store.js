@@ -186,6 +186,20 @@ export async function removeMonitoredChat(chatId) {
 
 // ---------------------------------------------------------------- status
 
+// ---------------------------------------------------------------- web agent quota
+
+// The public web agent spends the same DeepSeek key the Telegram bot uses, so each
+// connection gets a daily allowance. Keyed by day, so the counter resets on its own.
+export async function bumpAskUsage(ip, limit = 25) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `ask-${String(ip || 'unknown').slice(0, 60)}-${day}`;
+  const current = await readKey(key);
+  const used = Number(current?.used ?? 0);
+  if (used >= limit) return { allowed: false, used, limit };
+  await writeKey(key, { used: used + 1, updatedAt: Date.now() }, 172800);
+  return { allowed: true, used: used + 1, limit };
+}
+
 export async function probeStorage() {
   if (!KV_AVAILABLE) return { mode: STORAGE_MODE, ready: false };
   const stamp = Date.now();

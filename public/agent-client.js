@@ -16,9 +16,33 @@ function addMessage(text, role) {
   const body = document.createElement('div');
   const paragraph = document.createElement('p'); paragraph.textContent = text; body.append(paragraph); article.append(body);
   $('#chat').append(article); article.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return { article, paragraph };
 }
 installGlobalErrorHandling(() => addMessage('Something did not load. Please try again.', 'agent'));
-function send(text) { const value = text.trim(); if (!value) return; addMessage(value, 'user'); window.setTimeout(() => addMessage(createAgentReply(value), 'agent'), 220); }
+
+// The agent answers from /api/ask, which reads the APRO feed and the PancakeSwap
+// pools on BNB Chain server-side. If that call fails the template answer stands in,
+// so the page never goes silent.
+async function askAgent(value) {
+  const response = await fetch('/api/ask', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: value }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.ok) throw new Error(data?.message || 'No answer');
+  return data;
+}
+
+function send(text) {
+  const value = text.trim();
+  if (!value) return;
+  addMessage(value, 'user');
+  const { paragraph } = addMessage('Reading the chain', 'agent');
+  askAgent(value)
+    .then((data) => { paragraph.textContent = data.reply; })
+    .catch((error) => { paragraph.textContent = `${createAgentReply(value)} (${error.message})`; });
+}
 $('#composer').addEventListener('submit', (event) => { event.preventDefault(); const input = $('#message'); send(input.value); input.value = ''; });
 document.querySelectorAll('[data-prompt]').forEach((button) => button.addEventListener('click', () => send(button.dataset.prompt)));
 $('#new-chat').addEventListener('click', () => { $('#chat').innerHTML = ''; addMessage('New investigation ready. What asset or route should I research?', 'agent'); $('#message').focus(); });
