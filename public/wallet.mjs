@@ -10,10 +10,18 @@ export function shortenAddress(address) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
+export const WALLET_MISSING = 'No wallet found in this browser. Open this page inside MetaMask on your phone, or install a BNB Chain wallet app, then tap Connect wallet.';
+
+function walletError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 export async function connectWallet(provider) {
-  if (!provider?.request) throw new Error('Wallet provider not found. Install or unlock MetaMask, then try again.');
+  if (!provider?.request) throw walletError(WALLET_MISSING, 'wallet-missing');
   const accounts = await provider.request({ method: 'eth_requestAccounts' });
-  if (!accounts?.[0]) throw new Error('No wallet account was approved.');
+  if (!accounts?.[0]) throw walletError('Your wallet did not share an account. Unlock it and tap Connect wallet again.', 'wallet-empty');
   const currentChain = await provider.request({ method: 'eth_chainId' });
   if (currentChain !== BSC_CHAIN.chainId) {
     try {

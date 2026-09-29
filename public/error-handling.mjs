@@ -1,9 +1,14 @@
 const GENERIC_ERROR = 'Something did not load. Please try again.';
 
+const MESSAGES = {
+  4001: 'Wallet connection was cancelled.',
+  '-32002': 'Your wallet already has a connection request open.',
+  'wallet-missing': 'No wallet found in this browser. Open this page inside MetaMask on your phone, or install a BNB Chain wallet app, then tap Connect wallet.',
+  'wallet-empty': 'Your wallet did not share an account. Unlock it and tap Connect wallet again.',
+};
+
 export function safeErrorMessage(error) {
-  if (error?.code === 4001) return 'Wallet connection was cancelled.';
-  if (error?.code === -32002) return 'Your wallet already has a connection request open.';
-  return GENERIC_ERROR;
+  return MESSAGES[String(error?.code)] || GENERIC_ERROR;
 }
 
 export function safeParseJson(value, fallback) {
