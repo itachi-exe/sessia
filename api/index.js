@@ -3,7 +3,7 @@ import {
   getWatchlist, setWatchlist, deleteWatchlist,
   addMonitoredChat, removeMonitoredChat, KV_AVAILABLE, STORAGE_MODE, probeStorage,
   getChatHistory, appendChatMessage, bumpAskUsage,
-  setLinkCode, takeLinkCode, setChatWallet, getChatWallet, getWalletChat, clearChatWallet,
+  setLinkCode, takeLinkCode, setChatWallet, getChatWallet, getWalletChat, clearChatWallet, conversationKeyFor,
 } from './store.js';
 import { chatEnabled, chatReply, gatherEvidence } from '../agent/chat.js';
 import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from '../agent/limits.js';
@@ -348,8 +348,7 @@ async function handleBotMessage(chatId, text, username) {
     }
     const chatWatchlist = await getWatchlist(chatId);
     // A linked wallet owns the conversation, so the chat and the site share one thread.
-    const linkedWallet = await getChatWallet(chatId);
-    const historyKey = linkedWallet ? `wallet-${linkedWallet}` : String(chatId);
+    const historyKey = await conversationKeyFor(chatId);
     const history = await getChatHistory(historyKey);
     const answer = await chatReply({ text, watchlist: chatWatchlist, history });
     if (answer) {
@@ -526,7 +525,7 @@ async function handleLinkApi(request, response) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => alphabet[byte % alphabet.length]).join('');
   await setLinkCode(code, access.address);
-  const username = process.env.TELEGRAM_BOT_USERNAME || '';
+  const username = process.env.TELEGRAM_BOT_USERNAME || 'Sessia_BNBAI_bot';
   sendJson(response, 200, {
     ok: true,
     code,

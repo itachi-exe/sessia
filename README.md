@@ -164,6 +164,9 @@ npm test
 npm start
 ```
 
+The README screenshots come from `tests/readme_shots.py`, which drives a browser against a
+running deploy and writes into `docs/screenshots/`.
+
 The agent needs a model key and, for shared storage, a Blob token. Telegram needs the bot
 token and the webhook secret; the alert loop needs its own secret and the deployed URL.
 `.env.example` lists every name with an empty value, and it is the only env file here.
@@ -174,7 +177,7 @@ token and the webhook secret; the alert loop needs its own secret and the deploy
 
 | Check | State |
 | --- | --- |
-| Tests | 31 passing through `node:test`, no network in the suite |
+| Tests | 32 passing through `node:test`, no network in the suite |
 | Credentials | a scanner walks every blob in every commit and runs first in CI |
 | Injection | the agent refuses to print its instructions or any key |
 | Wallet gate | a dated signature, plus one real transaction on BNB Chain |

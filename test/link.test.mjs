@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   setLinkCode, takeLinkCode, setChatWallet, getChatWallet, getWalletChat, clearChatWallet,
+  conversationKeyFor,
 } from '../api/store.js';
 
 const ADDRESS = '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063';
@@ -25,6 +26,15 @@ test('a chat and a wallet point at each other until unlinked', async () => {
 test('an expired code is refused', async () => {
   await setLinkCode('ZZ99YY88', ADDRESS, -1);
   assert.equal(await takeLinkCode('ZZ99YY88'), null);
+});
+
+test('a linked chat shares the wallet conversation key', async () => {
+  const chatId = 'test-chat-2';
+  assert.equal(await conversationKeyFor(chatId), chatId);
+  await setChatWallet(chatId, ADDRESS);
+  assert.equal(await conversationKeyFor(chatId), `wallet-${ADDRESS}`);
+  await clearChatWallet(chatId, ADDRESS);
+  assert.equal(await conversationKeyFor(chatId), chatId);
 });
 
 test('an unknown code is refused', async () => {

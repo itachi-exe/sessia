@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 BASE = os.environ.get('SESSIA_BASE', 'https://sessia-beta.vercel.app')
 OUT = Path(__file__).resolve().parent.parent / 'docs' / 'screenshots'
 SIG = Path('/tmp/sessia_sig.txt')
-ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
+ADDRESS = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'
 
 PROVIDER = """
 (() => {
@@ -71,7 +71,13 @@ async def shoot_answer(browser, out, provider, viewport, name):
     await page.wait_for_selector('#message:not([disabled])', timeout=90000)
     await page.fill('#message', 'Compare the NVDA pool price with the APRO oracle right now.')
     await page.keyboard.press('Enter')
-    await page.wait_for_function("document.querySelectorAll('.message.agent').length > 1", timeout=120000)
+    await page.wait_for_function(
+        "(() => { const n = document.querySelectorAll('.message.agent'); "
+        "if (n.length < 2) return false; "
+        "const t = n[n.length - 1].innerText || ''; "
+        "return t.length > 120 && !t.includes('Reading the chain'); })()",
+        timeout=90000,
+    )
     await page.wait_for_timeout(2000)
     await page.screenshot(path=str(out / f'{name}.png'))
     await context.close()

@@ -225,6 +225,12 @@ export async function getWalletChat(address) {
   return doc?.chatId || null;
 }
 
+// A linked wallet owns the thread, so the chat and the site read the same history.
+export async function conversationKeyFor(chatId) {
+  const linked = await getChatWallet(chatId);
+  return linked ? `wallet-${linked}` : String(chatId);
+}
+
 export async function clearChatWallet(chatId, address) {
   await deleteKey(`link-chat-${chatId}`);
   if (address) await deleteKey(`link-wallet-${String(address).toLowerCase()}`);
