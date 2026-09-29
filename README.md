@@ -1,224 +1,200 @@
+<div align="center">
+<img src="public/mark.png" width="104" alt="Sessia" />
+
 # Sessia
 
-**Personalized AI Research Agent for Tokenized Stocks on BNB Chain**
+**Research before action.** Tokenized stocks on BNB Chain, read live on chain.
 
-Built for the BNB Chain Tokenized Stocks Hackathon.
+A Telegram bot and a web agent that answer one question well: what does the evidence say about this asset right now?
+
+[Live](https://sessia-beta.vercel.app) · [Agent](https://sessia-beta.vercel.app/agent.html) · [Bot](https://t.me/Sessia_BNBAI_bot) · BNB Chain 56
+
+</div>
 
 ---
 
-## What it does
+## What Sessia is
 
-Sessia monitors tokenized stocks across BNB Chain, detects unusual price deviations against on-chain oracle data, and delivers personalized, evidence-backed research alerts to each user via Telegram.
+Tokenized stocks such as NVDA and TSLA trade on BNB Chain around the clock, in pools that
+are thin, young, and easy to misread. The interesting question is not where the price has
+been, it is whether the number in front of you is the number the asset is actually worth.
+Sessia answers that with the chain itself: the pool, the oracle, the session, the spread.
 
-- **Live oracle prices** via APRO Oracle (BSC) — NVDA, TSLA, META, MSFT, PLTR, QQQ, SPCX
-- **DEX prices** read on-chain from the deepest PancakeSwap V3 pool for each tokenized stock
-- **Personalized watchlists** stored per Telegram chat ID (Vercel Blob private store, or Vercel KV when configured)
-- **Conversational layer** for free text questions, answered by DeepSeek but grounded in the same live on-chain reads. The model never supplies a price, a pool or a fee: those come from the chain, and if a read fails the bot says so instead of guessing.
-- **5-minute monitoring** via pm2 cron process firing Telegram alerts
-- **Session-aware** — knows when NYSE is open, closed, or weekend
-- **Evidence-first** — separates observations, signals, and limitations in every alert
+Three ideas shape the product:
+
+1. **Evidence, not opinion.** Every answer quotes the reads behind it, with the block-fresh
+   numbers, the source, and the age of the quote. If a feed is stale, the answer says so
+   instead of smoothing over it.
+2. **Nothing is signed for you.** Sessia holds no keys and has no code path that can move
+   an asset. It researches, sizes, and explains. The wallet stays yours.
+3. **A paid model behind a gate.** Answers run on a paid model key that never leaves the
+   server, so access is metered: a wallet proves ownership and history, and gets a small
+   daily allowance. The gate is the reason the key can exist at all.
+
+---
+
+## Screenshots
+
+The landing page: one line of what it does, then the live read.
+
+![The landing page](docs/screenshots/landing.png)
+
+Research on a single asset: the oracle price, the pool price, and the gap between them.
+
+![Research view](docs/screenshots/research.png)
+
+The agent, before a wallet is connected. The composer stays closed until a signature arrives.
+
+![The agent gate](docs/screenshots/agent-gate.png)
+
+The same agent answering a real question, with the reads it used.
+
+![An agent answer](docs/screenshots/agent-answer.png)
+
+The agent on a phone.
+
+<img src="docs/screenshots/agent-mobile.png" width="300" alt="Agent on a phone" />
+
+---
+
+## Product
+
+### One assistant, two doors
+
+Telegram and the site run the same agent over the same reads. The difference is how you get in.
+
+| Door | What you use it for | What it costs you |
+| --- | --- | --- |
+| Telegram | commands, questions, and the alerts | 10 messages a day per chat, commands included |
+| The site | the agent page, with the reads laid out | 5 questions a day per wallet, 40 requests a day per connection |
+| Everything | one ceiling for the day | 500 answers across the whole product |
+
+### The bot
+
+| Command | What it does |
+| --- | --- |
+| `/price NVDA` | the APRO oracle price, the pool price, and the gap between them |
+| `/threshold 1.5` | set the divergence that should trigger an alert for this chat |
+| `/session` | whether the US session is open, pre-market, after hours, or closed |
+| `/watchlist` | what this chat is watching |
+| `/simulate NVDA 100` | the estimated fill for a $100 trade, with the fee and slippage assumptions stated |
+| `/link` | bind this chat to a wallet so both share one conversation |
+| `/unlink` | break that link |
+| `/stop` | stop monitoring |
+| `/help` | the list, and where the numbers come from |
+
+### The alert engine
+
+The monitor loop wakes every five minutes, reads each watched asset, compares the pool
+price with the APRO oracle, and messages every chat watching that asset when the gap
+crosses that chat's own threshold. One alert per ticker per chat per hour, so a market
+that stays dislocated does not turn into a stream of noise.
+
+### The wallet gate
+
+A wallet gets in with two proofs: a signature over a dated message, and at least one
+transaction on BNB Chain. The signature expires with the day, and the history check is
+the reason an empty freshly funded address cannot use the agent. Answers come from a
+paid model key that never leaves the server, which is why the allowance exists at all.
+
+### Linking Telegram to a wallet
+
+Open the agent page, connect the wallet, press Connect Telegram. The server verifies the
+signature, returns a short single-use code, and the bot redeems it on Start. From then on
+the chat and the site are one identity: the same conversation, the same context, the same
+wallet allowance. `/link` shows the state, `/unlink` breaks it. A bare address never links
+anything on its own, because anybody can type anybody's address.
 
 ---
 
 ## Architecture
 
-```
-Telegram Bot (@Sessia_BNBAI_bot)
-        │
-        ▼
-Vercel Serverless (api/index.js)
-        │
-        ├── APRO Oracle (BSC RPC) ─── latestRoundData() on-chain
-        ├── PancakeSwap V3 pools (BSC RPC) ─── slot0 + liquidity for the DEX side
-        └── Vercel Blob (private store) ─── watchlists, cooldowns, observations
-
-pm2: sessia-cron (every 5 min)
-        │
-        └── POST /api/monitor ─── check all users, fire alerts
-```
-
-**Stack:** Node.js, Vercel Serverless, Vercel Blob, Telegram Bot API, BNB Smart Chain (chain ID 56)
-
-## Repository layout
-
-```
-api/                    serverless functions
-  index.js              routing, Telegram command layer, POST /api/ask
-  monitor.js            the five minute deviation check and alert delivery
-  store.js              watchlists, observations, daily counters
-agent/                  the conversational layer and its guardrails
-  chat.js               evidence gathering, prompt, model call
-  limits.js             per chat, per wallet and product wide allowances
-public/                 the site, served static, plus the shared chain layer
-  data.mjs              token registry, oracle and PancakeSwap reads, ticker resolution
-scripts/
-  local-server.mjs      run the site locally (npm start)
-  sessia-cron.mjs       pm2 loop that fires /api/monitor every five minutes
-test/                   node:test suites, 27 tests
-docs/
-  design.md             original product design notes
-  ARCHITECTURE.md       module map, request flow, limits, deploy notes
-assets/                 bot photo source
+```mermaid
+flowchart TB
+  T[Telegram chat] -->|update| H[api/index.js webhook]
+  P[Agent page] -->|question + signature| ASK[/api/ask/]
+  P -->|reads| PRICE[/api/price/]
+  P -->|signed link request| LINK[/api/link/]
+  H --> GATE{Wallet and chat allowances}
+  ASK --> GATE
+  LINK --> CODE[Single-use code, 15 minutes]
+  GATE --> CHAT[agent/chat.js]
+  CHAT --> EV[Evidence: pool, oracle, session]
+  EV --> RPC[(BNB Chain RPC)]
+  EV --> ORACLE[(APRO oracle feed)]
+  CHAT --> STORE[(Vercel Blob)]
+  CODE --> STORE
+  CRON[scripts/sessia-cron.mjs, every 5 minutes] --> MON[/api/monitor/]
+  MON --> STORE
+  MON -->|alert| T
 ```
 
-Three of those directories are also published on their own for readers who only want one layer: `public/` as **Sessia-frontend**, `api/` as **Sessia-backend**, `agent/` as **Sessia-agent**. Those repositories are generated copies from this monorepo (a subtree push, wired in `.github/workflows/mirror.yml`), so this repo stays the source of truth and the deploy still ships from here.
+| Path | What it is | Where it runs |
+| --- | --- | --- |
+| `api/` | the serverless entry point: webhook, `/api/ask`, `/api/price`, `/api/link`, `/api/monitor`, storage | Vercel functions, Node 20 |
+| `agent/` | the conversational layer and the allowance guardrails | imported by `api/` |
+| `public/` | the site, the browser modules, and the live reads | Vercel edge |
+| `scripts/` | the monitor loop and a local static server | pm2 on the box |
+| `test/` | the suite, plain `node:test` | CI and locally |
+| `docs/` | architecture notes, design notes, README screenshots | read |
+| `assets/` | the mascot source | read |
 
-`api/` and `public/` keep their names on purpose. They are Vercel's conventions, and renaming them means giving up filesystem routing for a rewrite that can silently break `/api/*` in production. `agent/` holds the conversational layer and its guardrails, imported by `api/index.js`. Both the browser and the server read prices through the same `public/data.mjs`, so the site and the bot can never disagree about a number.
+| Module | Responsibility |
+| --- | --- |
+| `api/index.js` | routing, the Telegram command layer, the wallet gate, the link codes |
+| `api/monitor.js` | one alert pass: read every watched asset, compare, notify the watchers |
+| `api/store.js` | the storage driver: Vercel Blob in production, files locally, memory in tests |
+| `agent/chat.js` | a question plus evidence becomes one grounded answer |
+| `agent/limits.js` | per chat, per wallet, per connection, product-day allowances |
+
+What it deliberately does not have: no private keys, no signing, no contract writes, and no
+code path that can move an asset. The health endpoint reports `"walletExecution": false`,
+and it is true.
 
 ---
 
-## Bot commands
+## Run it yourself
 
-| Command | Description |
-|---|---|
-| `/start` | Onboarding and status |
-| `/watch NVDA TSLA` | Set your watchlist |
-| `/price NVDA` | Live oracle price + session |
-| `/simulate NVDA 100` | Model a $100 trade via PancakeSwap |
-| `/watchlist` | View current config |
-| `/threshold 2%` | Set alert sensitivity |
-| `/session closed` | Alert only when US market is closed |
-| `/session open` | Alert only when US market is open |
-| `/session all` | Alert any time (default) |
-| `/stop` | Stop monitoring and clear watchlist |
-| `/help` | Full reference |
-| any other text | Asked as a question: DeepSeek answers, grounded in the same live on-chain reads |
+Needs Node 20. Nothing else is required to read the site: the deploy runs with an empty
+environment, and only the agent, the bot, and the alert loop need keys.
 
----
-
-## Supported assets
-
-| Ticker | Name | APRO Feed | bStocks | xStocks |
-|---|---|---|---|---|
-| NVDA | NVIDIA | ✓ | NVDAB | NVDAx |
-| TSLA | Tesla | ✓ | TSLAB | TSLAx |
-| META | Meta Platforms | ✓ | METAB | METAx |
-| MSFT | Microsoft | ✓ | MSFTB | MSFTx |
-| PLTR | Palantir | ✓ | PLTRB | — |
-| QQQ | Invesco QQQ | ✓ | QQQB | — |
-| SPCX | SpaceX | ✓ | SPCXB | SPCXx |
-
-All APRO oracle contract addresses are from [docs.apro.com](https://docs.apro.com/en/data-push/price-feed-contract.md) (BSC mainnet, September 2026).
-
-Only the bStocks addresses are enabled (NVDAB, TSLAB, METAB, MSFTB, QQQB, SPCXB), and each was verified on-chain on 2026-09-29: `symbol()` matched, `decimals()` returned 18, and the token has a PancakeSwap V3 pool quoting against USDT with live depth. The xStocks tokens and PLTRB have no BSC pool with meaningful liquidity, so `public/data.mjs` leaves them `null` instead of guessing an address; `SPCXx` exists but carries only a few hundred dollars of liquidity, so it will not produce a usable quote.
-
----
-
-## Setup
-
-### 1. Clone and install
-
-```bash
-git clone https://github.com/your-org/sessia
-cd sessia
+```
 npm install
+npm test
+npm start
 ```
 
-### 2. Configure environment
-
-Copy `.env.example` to `.env.local` and fill in:
-
-- `TELEGRAM_BOT_TOKEN` — from BotFather
-- `TELEGRAM_DAILY_LIMIT` — messages one Telegram chat may send per day (default 10, counted on every inbound message)
-- `WALLET_DAILY_LIMIT` — messages one connected wallet may send to the website agent per day (default 5)
-- `BSC_RPC_URL` — RPC used to check that a wallet has sent a transaction before it is allowed in (default `https://bsc-dataseed.binance.org`)
-- `TELEGRAM_WEBHOOK_SECRET` — random hex string
-- `BLOB_READ_WRITE_TOKEN` — set automatically when a Vercel Blob store is linked to the project (storage layer; setting `KV_REST_API_URL` + `KV_REST_API_TOKEN` switches storage to Vercel KV)
-- `CRON_SECRET` — protects `/api/monitor`
-- `DEEPSEEK_API_KEY` — key for the conversational layer. With it, free text questions get an answer; without it the bot replies with the command list. `DEEPSEEK_MODEL` overrides the model (default `deepseek-chat`, the non-reasoning variant, chosen for reply latency).
-
-### 3. Deploy
-
-```bash
-vercel --prod
-```
-
-### 4. Register webhook and bot commands
-
-```bash
-curl -X POST "https://your-deployment.vercel.app/api/telegram/setup?key=YOUR_SETUP_SECRET"
-```
-
-### 5. Start monitoring cron (on your server)
-
-```bash
-SESSIA_CRON_SECRET=<your-cron-secret> pm2 start scripts/sessia-cron.mjs --name sessia-cron
-pm2 save
-```
-
-### 6. Storage store
-
-This project is wired to a Vercel Blob store named `sessia-watchlists` (private access), already linked to the Vercel project, which sets `BLOB_READ_WRITE_TOKEN`. `api/store.js` keeps one JSON document per key: watchlist per chat, the monitored chat list, alert cooldowns, and a rolling window of observations per ticker. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` to move storage to Vercel KV; the call sites do not change.
+The agent needs a model key and, for shared storage, a Blob token. Telegram needs the bot
+token and the webhook secret; the alert loop needs its own secret and the deployed URL.
+`.env.example` lists every name with an empty value, and it is the only env file here.
 
 ---
 
-## Development
+## Quality
 
-```bash
-npm test         # Run test suite (Node built-in test runner)
-npm start        # Local dev server on port 3000
-```
-
----
-
-## Data disclosures
-
-- Reference prices come from APRO Oracle on BNB Smart Chain. Each observation includes a timestamp and freshness flag.
-- The DEX side is the deepest PancakeSwap V3 pool quoting the token against USDT, read on-chain (slot0 plus in-range liquidity), so the fee tier and price impact are real pool values rather than an off-chain estimate.
-- Baselines are built from collected observations. Early baselines are labeled as limited.
-- No transaction is submitted without explicit user confirmation.
-- Sessia alerts are research signals, not trade recommendations.
+| Check | State |
+| --- | --- |
+| Tests | 31 passing through `node:test`, no network in the suite |
+| Credentials | a scanner walks every blob in every commit and runs first in CI |
+| Injection | the agent refuses to print its instructions or any key |
+| Wallet gate | a dated signature, plus one real transaction on BNB Chain |
+| Failures | closed: the monitor answers 401 without its secret, ask 403 without a wallet |
+| Execution | none, on any path |
+| Allowances | 10 per chat, 5 per wallet, 40 and 200 per connection, 500 product wide, daily |
 
 ---
 
-## Limits
+## Roadmap
 
-Both doors spend one DeepSeek key, so both are capped per UTC day, and the counters live in the same store as the watchlists, so a cold start or a restart cannot reset them.
+- [x] Read tokenized stocks straight off BNB Chain, pool and oracle side by side
+- [x] A Telegram bot that answers commands and questions
+- [x] A site agent behind a wallet signature, with the gate explained on the page
+- [x] A monitor loop that alerts on divergence from the oracle
+- [x] One conversation per wallet, shared between the chat and the site
+- [ ] A repeat-offender list behind the allowances
+- [ ] The last secrets out of query strings
+- [ ] A second price venue to compare against the same oracle
 
-| Door | Identity | Allowance | Extra rule |
-| --- | --- | --- | --- |
-| `@Sessia_BNBAI_bot` | Telegram chat id | 10 messages a day | every inbound message counts, commands included, so no wording slips past the cap |
-| `agent.html` | connected wallet | 5 messages a day | the wallet signs the access message once a day, and must have sent at least one transaction on BNB Chain |
+<div align="center"><sub>Sessia is research, not advice. Nothing here signs for you.</sub></div>
 
-A wallet that only ever received funds reports a nonce of 0 and is refused, which is the point: a freshly generated wallet cannot farm free answers. `TELEGRAM_DAILY_LIMIT` and `WALLET_DAILY_LIMIT` change the numbers without a code change. Refusals cost nothing and are one line.
 
-## Secrets
-
-No credential has ever been committed here. That is enforced rather than promised:
-`scripts/scan-secrets.mjs` walks every blob in every commit and fails the build on a
-match, and it is the first step in CI on every push.
-
-The only key shaped string in the tree is a labelled public test key in
-`test/limits.test.mjs`, needed to exercise the signature check offline. It sits on the
-scanner's allowlist with that reason written next to it.
-
-Real keys live in environment variables on Vercel and in the secrets file on the box
-that runs the alert loop. `.env.example` carries the names with empty values and is
-the only env file in the repository. GitHub secret scanning is unavailable on a
-private repository without GitHub Advanced Security, so the scan above is the guard
-that actually runs.
-
-## Verification (2026-09-29)
-
-Run against the live deployment and the chain, not against fixtures:
-
-- Storage round trip on the deployed stack: `GET /api/health` returns `storageMode: vercel-blob`, `storageReady: true`.
-- Cross-process persistence: a watchlist written by the production webhook was read back by a separate local process through the same store.
-- Command routing: `/start`, `/watch`, `/watchlist`, `/simulate`, `/stop` exercised through the real handler; `/watchlist` now falls through from the `/watch` prefix correctly.
-- Alert path: an injected 4.87% oracle deviation produced one alert, and the second monitoring cycle inside the cooldown produced none.
-- Cron: `sessia-cron` under pm2 returns 200 every five minutes (`pricesChecked=7`).
-- Telegram: `POST /api/telegram/setup` returned `webhookConfigured: true` for `Sessia_BNBAI_bot`.
-- Conversational layer: a free-text question sent through the production webhook came back with live figures (oracle, pool, gap) and both turns were read back from Blob by a separate process. Follow-up questions resolve against the stored turns; with `DEEPSEEK_API_KEY` absent the bot falls back to the command list.
-- Name and intent handling: `NVIDIA`, `Tesla`, `Nasdaq` and the on-chain symbols all resolve to the same asset, and a message that asks to monitor an asset sets the alert rule (`watchlist = {"tickers":["NVDA"],"thresholdPct":1.5,"alertSession":"all"}` read back from Blob) instead of describing it.
-- Web agent: `POST /api/ask` on the live deployment returned a grounded answer with its evidence list, and a browser run of `/agent.html` produced a live-price reply with no console errors. The landing page strip now reads the APRO feed instead of hardcoded demo prices.
-- Token registry: every enabled address was read on-chain (symbol, decimals, deepest V3 pool, live price) before being written into `public/data.mjs`.
-- Alerting, end to end: with the bar tightened to 0.01% the five minute loop fired a real alert (`alertsSent=1`, `session=US MARKET OPEN`) and delivered it to Telegram, then the bar was put back to 1.5%.
-- Audit checks: `/api/monitor` returns 401 without the secret, `/api/ask` replies `cache-control: no-store` with HSTS and no wildcard CORS, a prompt injection asking for the system prompt was refused, and the model key being absent falls back to the command list instead of failing.
-- Limits: the Telegram handler answered ten messages from one chat and refused the eleventh, the twelfth and a `/price` command with `You have used all 10 messages for today`. On the live deployment `POST /api/ask` refused a wallet that had never transacted (`no_transactions`), refused a tampered signature (`bad_signature`), answered five times for a signed wallet with chain history and refused the sixth (`daily_limit`). A live chain read of the PancakeSwap router returned a nonce of 1.
-- Test suite: 27 tests, 27 passing. The old template agent and its public system prompt file were deleted, along with their tests, because the agent is now the server side layer in `agent/chat.js`.
-
----
-
-## License
-
-MIT

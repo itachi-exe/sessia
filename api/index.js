@@ -3,6 +3,7 @@ import {
   getWatchlist, setWatchlist, deleteWatchlist,
   addMonitoredChat, removeMonitoredChat, KV_AVAILABLE, STORAGE_MODE, probeStorage,
   getChatHistory, appendChatMessage, bumpAskUsage,
+  setLinkCode, takeLinkCode, setChatWallet, getChatWallet, getWalletChat, clearChatWallet,
 } from './store.js';
 import { chatEnabled, chatReply, gatherEvidence } from '../agent/chat.js';
 import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from '../agent/limits.js';
@@ -54,11 +55,29 @@ function tickerList() {
   return SUPPORTED_TICKERS.map((t) => `• *${t}* — ${TOKENS[t].name}`).join('\n');
 }
 
+const short = (address) => `${String(address).slice(0, 6)}...${String(address).slice(-4)}`;
+
 async function handleBotMessage(chatId, text, username) {
-  const lower = text.toLowerCase().trim();
+  const trimmed = String(text == null ? '' : text).trim();
+  const lower = trimmed.toLowerCase();
 
   // /start — welcome and onboarding
   if (lower.startsWith('/start')) {
+    const startPayload = trimmed.split(/\s+/)[1] || '';
+    if (startPayload.toLowerCase().startsWith('link_')) {
+      const address = await takeLinkCode(startPayload.slice(5));
+      if (!address) {
+        await reply(chatId, 'That link code is used up or has expired. Open the agent page, press Connect Telegram, and a fresh one appears.');
+        return;
+      }
+      await setChatWallet(chatId, address);
+      await reply(chatId, `Linked. This chat and the web agent for ${short(address)} now share one conversation, and the wallet's five questions a day cover both. /unlink undoes it.`);
+      return;
+    }
+    if (startPayload) {
+      await reply(chatId, 'A bare address cannot link: anyone could claim any wallet. Open the agent page, connect your wallet, then press Connect Telegram.');
+      return;
+    }
     const watchlist = await getWatchlist(chatId);
     if (watchlist?.tickers?.length) {
       await reply(chatId,
@@ -94,6 +113,8 @@ async function handleBotMessage(chatId, text, username) {
       `/session all — Alert any time (default)\n` +
       `/watchlist — Show your current watchlist\n` +
       `/simulate NVDA 100 — Simulate a $100 trade\n` +
+      `/link — Link this chat to your wallet so both share one conversation\n` +
+      `/unlink — Break that link\n` +
       `/stop — Stop monitoring\n\n` +
       `_Sessia uses APRO Oracle on BSC for reference prices._`
     );
@@ -101,6 +122,38 @@ async function handleBotMessage(chatId, text, username) {
   }
 
   // /price TICKER
+  if (lower.startsWith('/link')) {
+    const linked = await getChatWallet(chatId);
+    if (linked) {
+      await reply(chatId, `This chat is linked to ${short(linked)}, so it shares one conversation with the web agent for that wallet. /unlink breaks the link.`);
+      return;
+    }
+    const code = trimmed.split(/\s+/)[1];
+    if (code) {
+      const address = await takeLinkCode(code);
+      if (!address) {
+        await reply(chatId, 'That code is used up or has expired, and each one works once. Open the agent page, connect your wallet, press Connect Telegram, and send the fresh code here.');
+        return;
+      }
+      await setChatWallet(chatId, address);
+      await reply(chatId, `Linked. This chat and the web agent for ${short(address)} now share one conversation, and the wallet's five questions a day cover both.`);
+      return;
+    }
+    await reply(chatId, 'Open the agent page on the website, connect your wallet, then press Connect Telegram. You get a code; send it here as /link CODE.');
+    return;
+  }
+
+  if (lower.startsWith('/unlink')) {
+    const linked = await getChatWallet(chatId);
+    if (!linked) {
+      await reply(chatId, 'This chat is not linked to a wallet.');
+      return;
+    }
+    await clearChatWallet(chatId, linked);
+    await reply(chatId, `Unlinked from ${short(linked)}. This chat keeps its own conversation from here on.`);
+    return;
+  }
+
   if (lower.startsWith('/price')) {
     const parts = text.trim().split(/\s+/);
     const ticker = resolveTicker(parts[1]);
@@ -294,12 +347,15 @@ async function handleBotMessage(chatId, text, username) {
       return;
     }
     const chatWatchlist = await getWatchlist(chatId);
-    const history = await getChatHistory(chatId);
+    // A linked wallet owns the conversation, so the chat and the site share one thread.
+    const linkedWallet = await getChatWallet(chatId);
+    const historyKey = linkedWallet ? `wallet-${linkedWallet}` : String(chatId);
+    const history = await getChatHistory(historyKey);
     const answer = await chatReply({ text, watchlist: chatWatchlist, history });
     if (answer) {
       await reply(chatId, answer);
-      await appendChatMessage(chatId, 'user', text);
-      await appendChatMessage(chatId, 'assistant', answer);
+      await appendChatMessage(historyKey, 'user', text);
+      await appendChatMessage(historyKey, 'assistant', answer);
       return;
     }
   }
@@ -451,6 +507,35 @@ function clientIp(request) {
 
 // The site's agent page posts here. Same grounded answer the Telegram bot gives,
 // with the raw reads returned alongside so the page can show its work.
+// The agent page asks for a short code that binds a Telegram chat to a wallet. The
+// request carries a wallet signature, so nobody can link an address they do not hold.
+async function handleLinkApi(request, response) {
+  const raw = await readBody(request);
+  let payload = null;
+  try { payload = JSON.parse(raw || '{}'); } catch { payload = null; }
+  const access = await verifyWalletAccess({ address: payload?.address, signature: payload?.signature });
+  if (!access.ok) {
+    sendJson(response, 403, { ok: false, reason: access.reason, message: access.message, challenge: access.challenge });
+    return;
+  }
+  const attempts = await bumpAskUsage(`link-${clientIp(request)}`, 20);
+  if (!attempts.allowed) {
+    sendJson(response, 429, { ok: false, reason: 'link_limit', message: 'Too many link attempts from this connection today.' });
+    return;
+  }
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const code = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => alphabet[byte % alphabet.length]).join('');
+  await setLinkCode(code, access.address);
+  const username = process.env.TELEGRAM_BOT_USERNAME || '';
+  sendJson(response, 200, {
+    ok: true,
+    code,
+    deepLink: username ? `https://t.me/${username}?start=link_${code}` : null,
+    alreadyLinked: Boolean(await getWalletChat(access.address)),
+    expiresInMinutes: 15,
+  });
+}
+
 async function handleAskApi(request, response) {
   const raw = await readBody(request);
   let payload = null;
@@ -487,7 +572,11 @@ async function handleAskApi(request, response) {
     return;
   }
   const evidence = await gatherEvidence(message, null);
-  const reply = await chatReply({ text: message, watchlist: null, history: [], evidence });
+  const historyKey = `wallet-${String(access.address).toLowerCase()}`;
+  const askHistory = await getChatHistory(historyKey);
+  const reply = await chatReply({ text: message, watchlist: null, history: askHistory, evidence });
+  await appendChatMessage(historyKey, 'user', message);
+  if (reply) await appendChatMessage(historyKey, 'assistant', reply);
   if (!reply) {
     sendJson(response, 503, { ok: false, message: 'The agent could not answer just now. Try again in a moment.' });
     return;
@@ -499,6 +588,10 @@ export default async function handler(request, response) {
   try {
     const url = new URL(request.url, 'https://sessia-beta.vercel.app');
 
+    if (url.pathname === '/api/link' && request.method === 'POST') {
+      await handleLinkApi(request, response);
+      return;
+    }
     if (url.pathname === '/api/health') {
       const storage = await probeStorage();
       sendJson(response, 200, {

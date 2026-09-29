@@ -190,6 +190,46 @@ export async function removeMonitoredChat(chatId) {
 
 // The public web agent spends the same DeepSeek key the Telegram bot uses, so each
 // connection gets a daily allowance. Keyed by day, so the counter resets on its own.
+// ------------------------------------------------------------------ telegram link
+// A wallet and a Telegram chat can become one identity. The code is short lived and
+// single use, and it only ever exists because a request carried a signature.
+export async function setLinkCode(code, address, ttlSeconds = 900) {
+  return writeKey(`link-code-${String(code).toUpperCase()}`, { address, at: Date.now(), ttlMs: ttlSeconds * 1000 }, ttlSeconds);
+}
+
+export async function takeLinkCode(code) {
+  const key = `link-code-${String(code || '').toUpperCase()}`;
+  const doc = await readKey(key);
+  if (!doc?.address) return null;
+  await deleteKey(key);
+  // Expiry is decided here as well as by the store, so a driver without a clock
+  // cannot keep a code alive past its window.
+  if (Number.isFinite(doc.ttlMs) && Date.now() - Number(doc.at) > doc.ttlMs) return null;
+  return doc.address;
+}
+
+export async function setChatWallet(chatId, address) {
+  const wallet = String(address || '').toLowerCase();
+  if (!wallet) return false;
+  await writeKey(`link-wallet-${wallet}`, { chatId: String(chatId), at: Date.now() });
+  return writeKey(`link-chat-${chatId}`, { address: wallet, at: Date.now() });
+}
+
+export async function getChatWallet(chatId) {
+  const doc = await readKey(`link-chat-${chatId}`);
+  return doc?.address || null;
+}
+
+export async function getWalletChat(address) {
+  const doc = await readKey(`link-wallet-${String(address || '').toLowerCase()}`);
+  return doc?.chatId || null;
+}
+
+export async function clearChatWallet(chatId, address) {
+  await deleteKey(`link-chat-${chatId}`);
+  if (address) await deleteKey(`link-wallet-${String(address).toLowerCase()}`);
+}
+
 export async function bumpAskUsage(ip, limit = 25) {
   const day = new Date().toISOString().slice(0, 10);
   const key = `ask-${String(ip || 'unknown').slice(0, 60)}-${day}`;

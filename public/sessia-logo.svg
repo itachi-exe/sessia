@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
-  <title id="title">Sessia logo</title>
-  <desc id="desc">A yellow signal prism forming an abstract S</desc>
-  <path fill="#f0b90b" d="M64 4 120 36v56l-56 32L8 92V36L64 4Z"/>
-  <path fill="#101010" d="m88 31 12 7v16H56L40 63l16 9h44v18l-12 7H51L27 83V62l24-14h37V31Z"/>
-  <path fill="#f0b90b" d="m44 63 12-9h28v18H56L44 63Z"/>
-</svg>
