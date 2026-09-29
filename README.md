@@ -56,6 +56,7 @@ pm2: sessia-cron (every 5 min)
 | `/session all` | Alert any time (default) |
 | `/stop` | Stop monitoring and clear watchlist |
 | `/help` | Full reference |
+| any other text | Asked as a question: DeepSeek answers, grounded in the same live on-chain reads |
 
 ---
 
@@ -151,8 +152,9 @@ Run against the live deployment and the chain, not against fixtures:
 - Alert path: an injected 4.87% oracle deviation produced one alert, and the second monitoring cycle inside the cooldown produced none.
 - Cron: `sessia-cron` under pm2 returns 200 every five minutes (`pricesChecked=7`).
 - Telegram: `POST /api/telegram/setup` returned `webhookConfigured: true` for `Sessia_BNBAI_bot`.
+- Conversational layer: a free-text question sent through the production webhook came back with live figures (oracle, pool, gap) and both turns were read back from Blob by a separate process. Follow-up questions resolve against the stored turns; with `DEEPSEEK_API_KEY` absent the bot falls back to the command list.
 - Token registry: every enabled address was read on-chain (symbol, decimals, deepest V3 pool, live price) before being written into `public/data.mjs`.
-- Test suite: 17 tests, 17 passing.
+- Test suite: 19 tests, 19 passing.
 
 ---
 
