@@ -1,0 +1,14 @@
+{
+  "name": "sessia",
+  "version": "0.1.0",
+  "private": true,
+  "main": "api/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "node local-server.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
+  }
+}

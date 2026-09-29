@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101010" />
+  <title>Sessia Agent</title>
+  <link rel="stylesheet" href="/agent.css" />
+  <link rel="stylesheet" href="/logo.css" />
+  <link rel="stylesheet" href="/telegram.css" />
+</head>
+<body>
+  <main class="workspace">
+    <aside class="rail">
+      <a class="brand" href="/" aria-label="Sessia home"><img src="/sessia-logo.svg" alt="" />SESSIA</a>
+      <div class="session"><small>CONNECTED WALLET</small><b id="wallet-address">Checking…</b><span class="network"><i></i> BNB SMART CHAIN</span><button class="telegram-connect" data-telegram-connect>Connect Telegram <span>↗</span></button></div>
+      <nav aria-label="Agent navigation"><button class="current">Research agent</button><button id="new-chat">New investigation</button></nav>
+      <div class="watching"><small>WATCHING</small><button data-prompt="Investigate the recorded NVDA deviation.">NVDA <span>RECORDED</span></button><button data-prompt="Watch TSLA when it moves more than 2% while the market is closed.">TSLA <span>SET RULE</span></button></div>
+      <button class="disconnect" id="disconnect">Disconnect wallet</button>
+    </aside>
+    <section class="chat-shell" aria-label="Sessia research agent">
+      <header class="chat-header"><div><span class="kicker">SESSIA / RESEARCH AGENT</span><h1>What should I investigate?</h1></div><div class="header-actions"><button class="telegram-connect header-telegram" data-telegram-connect>Telegram</button><span class="agent-status"><i></i> ONLINE</span></div></header>
+      <div class="chat" id="chat" aria-live="polite"><article class="message agent"><span class="avatar"><img src="/sessia-logo.svg" alt="" /></span><div><p>I am your research agent. Ask me to monitor a tokenized stock, explain an observed deviation, or simulate a supported route.</p><small>RECORDED-DEMO DATA. NO TRANSACTIONS SUBMITTED.</small></div></article></div>
+      <div class="suggestions" aria-label="Suggested prompts"><button data-prompt="Watch NVDA when it moves more than 2% while the market is closed.">Monitor NVDA overnight</button><button data-prompt="Investigate the recorded NVDA deviation.">Explain NVDA signal</button><button data-prompt="Simulate a $100 trade for NVDA.">Simulate $100 route</button></div>
+      <form class="composer" id="composer"><label class="sr-only" for="message">Message Sessia</label><input id="message" autocomplete="off" placeholder="Ask Sessia to research an asset…" required /><button type="submit">Send <span>↗</span></button></form>
+      <p class="disclosure">Sessia provides research context from the available data. It does not provide financial advice or submit trades.</p>
+    </section>
+  </main>
+  <dialog class="telegram-dialog" id="telegram-dialog"><button class="dialog-close" id="close-telegram" aria-label="Close Telegram connection">×</button><span class="kicker">TELEGRAM NOTIFICATIONS</span><h2>Connect your alert channel.</h2><p>Telegram delivery requires Sessia’s notification bot. Enter a chat ID only after starting that bot, then Sessia can bind this wallet to its alert channel.</p><label for="telegram-chat-id">Telegram chat ID</label><input id="telegram-chat-id" inputmode="numeric" placeholder="Example: 123456789" /><button class="dialog-primary" id="save-telegram">Save notification channel</button><small id="telegram-status">Bot configuration is checked before a channel is saved.</small></dialog>
+  <script type="module" src="/agent-client.js"></script>
+</body>
+</html>
