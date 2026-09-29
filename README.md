@@ -93,6 +93,9 @@ npm install
 Copy `.env.example` to `.env.local` and fill in:
 
 - `TELEGRAM_BOT_TOKEN` — from BotFather
+- `TELEGRAM_DAILY_LIMIT` — messages one Telegram chat may send per day (default 10, counted on every inbound message)
+- `WALLET_DAILY_LIMIT` — messages one connected wallet may send to the website agent per day (default 5)
+- `BSC_RPC_URL` — RPC used to check that a wallet has sent a transaction before it is allowed in (default `https://bsc-dataseed.binance.org`)
 - `TELEGRAM_WEBHOOK_SECRET` — random hex string
 - `BLOB_READ_WRITE_TOKEN` — set automatically when a Vercel Blob store is linked to the project (storage layer; setting `KV_REST_API_URL` + `KV_REST_API_TOKEN` switches storage to Vercel KV)
 - `CRON_SECRET` — protects `/api/monitor`
@@ -142,6 +145,17 @@ npm start        # Local dev server on port 3000
 
 ---
 
+## Limits
+
+Both doors spend one DeepSeek key, so both are capped per UTC day, and the counters live in the same store as the watchlists, so a cold start or a restart cannot reset them.
+
+| Door | Identity | Allowance | Extra rule |
+| --- | --- | --- | --- |
+| `@Sessia_BNBAI_bot` | Telegram chat id | 10 messages a day | every inbound message counts, commands included, so no wording slips past the cap |
+| `agent.html` | connected wallet | 5 messages a day | the wallet signs the access message once a day, and must have sent at least one transaction on BNB Chain |
+
+A wallet that only ever received funds reports a nonce of 0 and is refused, which is the point: a freshly generated wallet cannot farm free answers. `TELEGRAM_DAILY_LIMIT` and `WALLET_DAILY_LIMIT` change the numbers without a code change. Refusals cost nothing and are one line.
+
 ## Verification (2026-09-29)
 
 Run against the live deployment and the chain, not against fixtures:
@@ -156,7 +170,8 @@ Run against the live deployment and the chain, not against fixtures:
 - Name and intent handling: `NVIDIA`, `Tesla`, `Nasdaq` and the on-chain symbols all resolve to the same asset, and a message that asks to monitor an asset sets the alert rule (`watchlist = {"tickers":["NVDA"],"thresholdPct":1.5,"alertSession":"all"}` read back from Blob) instead of describing it.
 - Web agent: `POST /api/ask` on the live deployment returned a grounded answer with its evidence list, and a browser run of `/agent.html` produced a live-price reply with no console errors. The landing page strip now reads the APRO feed instead of hardcoded demo prices.
 - Token registry: every enabled address was read on-chain (symbol, decimals, deepest V3 pool, live price) before being written into `public/data.mjs`.
-- Test suite: 23 tests, 23 passing.
+- Limits: the Telegram handler answered ten messages from one chat and refused the eleventh, the twelfth and a `/price` command with `You have used all 10 messages for today`. On the live deployment `POST /api/ask` refused a wallet that had never transacted (`no_transactions`), refused a tampered signature (`bad_signature`), answered five times for a signed wallet with chain history and refused the sixth (`daily_limit`). A live chain read of the PancakeSwap router returned a nonce of 1.
+- Test suite: 30 tests, 30 passing.
 
 ---
 

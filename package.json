@@ -9,6 +9,7 @@
     "start": "node local-server.mjs"
   },
   "dependencies": {
-    "@vercel/blob": "^2.8.0"
+    "@vercel/blob": "^2.8.0",
+    "viem": "^2.57.0"
   }
 }

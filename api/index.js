@@ -5,6 +5,7 @@ import {
   getChatHistory, appendChatMessage, bumpAskUsage,
 } from './store.js';
 import { chatEnabled, chatReply, gatherEvidence } from './chat.js';
+import { consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from './limits.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
@@ -335,6 +336,17 @@ async function handleTelegramUpdate(request, response) {
   const username = message?.from?.first_name || message?.from?.username || '';
   console.info('telegram_webhook_received', { hasChat: Boolean(chatId), textLen: text.length, updateId: update?.update_id });
 
+  // One allowance per Telegram chat per day, counted before anything else runs so a
+  // command cannot be used to slip past the cap.
+  if (chatId && text) {
+    const allowance = await consumeTelegramMessage(chatId);
+    if (!allowance.allowed) {
+      await reply(chatId, `You have used all ${allowance.limit} messages for today. The agent is back tomorrow.`);
+      sendJson(response, 200, { ok: true, refused: 'daily_limit' });
+      return;
+    }
+  }
+
   if (chatId && text) {
     try {
       await handleBotMessage(chatId, text, username);
@@ -412,7 +424,9 @@ async function handlePriceApi(request, response, url) {
 // ---------------------------------------------------------------- web agent
 
 const ASK_MAX_CHARS = 400;
-const ASK_DAILY_LIMIT = 25;
+// Coarse backstop so an unsigned flood cannot hammer the function even if it never
+// reaches the wallet check.
+const ASK_IP_DAILY_LIMIT = 40;
 
 function clientIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
@@ -434,9 +448,21 @@ async function handleAskApi(request, response) {
     sendJson(response, 503, { ok: false, message: 'The agent is not configured right now.' });
     return;
   }
-  const quota = await bumpAskUsage(clientIp(request), ASK_DAILY_LIMIT);
+  // The wallet has to prove ownership, then show that it has actually sent a
+  // transaction on BNB Chain. Fresh wallets get nothing.
+  const access = await verifyWalletAccess({ address: payload?.address, signature: payload?.signature });
+  if (!access.ok) {
+    sendJson(response, 403, { ok: false, reason: access.reason, message: access.message, challenge: access.challenge });
+    return;
+  }
+  const flood = await bumpAskUsage(`ip-${clientIp(request)}`, ASK_IP_DAILY_LIMIT);
+  if (!flood.allowed) {
+    sendJson(response, 429, { ok: false, reason: 'connection_limit', message: 'Too many requests from this connection today.' });
+    return;
+  }
+  const quota = await consumeWalletMessage(access.address);
   if (!quota.allowed) {
-    sendJson(response, 429, { ok: false, message: `That is the daily limit (${quota.limit}) for this connection. The Telegram bot has no limit.` });
+    sendJson(response, 403, { ok: false, reason: 'daily_limit', message: `This wallet has used all ${quota.limit} messages for today. The agent resets tomorrow.`, limit: quota.limit, used: quota.used });
     return;
   }
   const evidence = await gatherEvidence(message, null);
@@ -445,7 +471,7 @@ async function handleAskApi(request, response) {
     sendJson(response, 503, { ok: false, message: 'The agent could not answer just now. Try again in a moment.' });
     return;
   }
-  sendJson(response, 200, { ok: true, reply, evidence: evidence.slice(1), reads: quota.used, limit: quota.limit });
+  sendJson(response, 200, { ok: true, reply, evidence: evidence.slice(1), wallet: access.address, used: quota.used, limit: quota.limit, remaining: quota.remaining });
 }
 
 export default async function handler(request, response) {
