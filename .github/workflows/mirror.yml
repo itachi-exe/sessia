@@ -1,0 +1,40 @@
+name: mirror
+
+# Publishes the three layer directories to their own repositories. Generated copies
+# only: the monorepo stays the source of truth. Needs a token with repo scope stored
+# as the MIRROR_TOKEN secret; without it the job reports and exits.
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for the mirror token
+        id: gate
+        run: |
+          if [ -z "${{ secrets.MIRROR_TOKEN }}" ]; then
+            echo "MIRROR_TOKEN is not set, skipping the sync."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Push each layer
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          set -e
+          owner="itachi-exe"
+          git config user.name "sessia-mirror"
+          git config user.email "sessia-mirror@users.noreply.github.com"
+          for pair in "public:Sessia-frontend" "api:Sessia-backend" "agent:Sessia-agent"; do
+            prefix="${pair%%:*}"
+            repo="${pair##*:}"
+            git subtree split --prefix="$prefix" -b "mirror-$prefix"
+            git push --force "https://x-access-token:${{ secrets.MIRROR_TOKEN }}@github.com/$owner/$repo.git" "mirror-$prefix:main"
+            git branch -D "mirror-$prefix"
+          done

@@ -61,6 +61,8 @@ docs/
 assets/                 bot photo source
 ```
 
+Three of those directories are also published on their own for readers who only want one layer: `public/` as **Sessia-frontend**, `api/` as **Sessia-backend**, `agent/` as **Sessia-agent**. Those repositories are generated copies from this monorepo (a subtree push, wired in `.github/workflows/mirror.yml`), so this repo stays the source of truth and the deploy still ships from here.
+
 `api/` and `public/` keep their names on purpose. They are Vercel's conventions, and renaming them means giving up filesystem routing for a rewrite that can silently break `/api/*` in production. `agent/` holds the conversational layer and its guardrails, imported by `api/index.js`. Both the browser and the server read prices through the same `public/data.mjs`, so the site and the bot can never disagree about a number.
 
 ---

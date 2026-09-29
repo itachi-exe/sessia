@@ -15,3 +15,5 @@ plain ES modules that the browser loads directly.
 - `sessia-logo.svg` the mark used across the site.
 
 Never put a key in this directory. Anything here is downloadable by anyone.
+
+Published as the `Sessia-frontend` repository. That copy is generated from this monorepo with a subtree push: edit here, then re-sync. Never edit the mirror.

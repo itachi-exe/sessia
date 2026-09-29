@@ -11,3 +11,5 @@ spend bounded lives here.
   signed wallet that has chain history, and a product wide ceiling for the day.
 
 Imported by `api/index.js`. Tests: `test/chat.test.mjs`, `test/limits.test.mjs`.
+
+Published as the `Sessia-agent` repository. That copy is generated from this monorepo with a subtree push: edit here, then re-sync. Never edit the mirror.

@@ -12,3 +12,5 @@ single `vercel.json` rewrite enough.
   cannot reset an allowance.
 
 Everything here is server side only. No key from this layer ever reaches a browser.
+
+Published as the `Sessia-backend` repository. That copy is generated from this monorepo with a subtree push: edit here, then re-sync. Never edit the mirror.
