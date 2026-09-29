@@ -12,6 +12,9 @@ import { bumpAskUsage } from './store.js';
 
 export const TELEGRAM_DAILY_LIMIT = Number(process.env.TELEGRAM_DAILY_LIMIT || 10);
 export const WALLET_DAILY_LIMIT = Number(process.env.WALLET_DAILY_LIMIT || 5);
+// One ceiling for the whole product. Per identity caps can be multiplied by making
+// more identities, this one cannot: it is the hard stop on what a single day can cost.
+export const GLOBAL_DAILY_LIMIT = Number(process.env.GLOBAL_DAILY_LIMIT || 500);
 export const ACCESS_PREFIX = 'Sessia agent access';
 
 export function dayKey(now = Date.now()) {
@@ -51,6 +54,13 @@ export async function transactionsSent(address, { rpcUrl = BSC_RPC_URL, fetcher 
   const data = await response.json();
   if (!data?.result) throw new Error('rpc_unavailable');
   return Number.parseInt(data.result, 16);
+}
+
+// The product wide budget. Every message that would reach the model passes through
+// here, so the worst case for one day is a known number even against many identities.
+export async function consumeGlobalBudget({ limit = GLOBAL_DAILY_LIMIT, counter = bumpAskUsage } = {}) {
+  const usage = await counter('global-budget', limit);
+  return { allowed: usage.allowed, used: usage.used, limit, remaining: Math.max(0, limit - usage.used) };
 }
 
 // Signature plus history. Returns a reason code and a line the page can show.

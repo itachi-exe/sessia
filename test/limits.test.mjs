@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { privateKeyToAccount } from 'viem/accounts';
-import { accessChallenge, consumeTelegramMessage, consumeWalletMessage, dayKey, verifyWalletAccess } from '../api/limits.js';
+import { accessChallenge, consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, dayKey, verifyWalletAccess } from '../api/limits.js';
 
 // A throwaway key that only exists in this test. No funds, no chain history.
 const ACCOUNT = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
@@ -35,6 +35,14 @@ test('a telegram chat gets exactly its daily allowance', async () => {
   assert.equal(third.used, 2);
 });
 
+test('the product wide budget stops the day when it is spent', async () => {
+  const counter = memoryCounter();
+  const first = await consumeGlobalBudget({ limit: 2, counter });
+  const second = await consumeGlobalBudget({ limit: 2, counter });
+  const third = await consumeGlobalBudget({ limit: 2, counter });
+  assert.deepEqual([first.allowed, second.allowed, third.allowed], [true, true, false]);
+  assert.equal(third.remaining, 0);
+});
 test('a wallet gets exactly five answers a day', async () => {
   const counter = memoryCounter();
   const results = [];

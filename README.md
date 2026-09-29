@@ -170,8 +170,10 @@ Run against the live deployment and the chain, not against fixtures:
 - Name and intent handling: `NVIDIA`, `Tesla`, `Nasdaq` and the on-chain symbols all resolve to the same asset, and a message that asks to monitor an asset sets the alert rule (`watchlist = {"tickers":["NVDA"],"thresholdPct":1.5,"alertSession":"all"}` read back from Blob) instead of describing it.
 - Web agent: `POST /api/ask` on the live deployment returned a grounded answer with its evidence list, and a browser run of `/agent.html` produced a live-price reply with no console errors. The landing page strip now reads the APRO feed instead of hardcoded demo prices.
 - Token registry: every enabled address was read on-chain (symbol, decimals, deepest V3 pool, live price) before being written into `public/data.mjs`.
+- Alerting, end to end: with the bar tightened to 0.01% the five minute loop fired a real alert (`alertsSent=1`, `session=US MARKET OPEN`) and delivered it to Telegram, then the bar was put back to 1.5%.
+- Audit checks: `/api/monitor` returns 401 without the secret, `/api/ask` replies `cache-control: no-store` with HSTS and no wildcard CORS, a prompt injection asking for the system prompt was refused, and the model key being absent falls back to the command list instead of failing.
 - Limits: the Telegram handler answered ten messages from one chat and refused the eleventh, the twelfth and a `/price` command with `You have used all 10 messages for today`. On the live deployment `POST /api/ask` refused a wallet that had never transacted (`no_transactions`), refused a tampered signature (`bad_signature`), answered five times for a signed wallet with chain history and refused the sixth (`daily_limit`). A live chain read of the PancakeSwap router returned a nonce of 1.
-- Test suite: 30 tests, 30 passing.
+- Test suite: 26 tests, 26 passing. The old template agent and its public system prompt file were deleted, along with their tests, because the agent is now the server side layer in `api/chat.js`.
 
 ---
 

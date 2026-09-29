@@ -5,7 +5,7 @@ import {
   getChatHistory, appendChatMessage, bumpAskUsage,
 } from './store.js';
 import { chatEnabled, chatReply, gatherEvidence } from './chat.js';
-import { consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from './limits.js';
+import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from './limits.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
@@ -287,6 +287,12 @@ async function handleBotMessage(chatId, text, username) {
     return;
   }
   if (chatEnabled()) {
+    const budget = await consumeGlobalBudget();
+    if (!budget.allowed) {
+      await reply(chatId, 'The agent has reached its limit for today. It is back tomorrow.');
+      sendJson(response, 200, { ok: true, refused: 'global_budget' });
+      return;
+    }
     const chatWatchlist = await getWatchlist(chatId);
     const history = await getChatHistory(chatId);
     const answer = await chatReply({ text, watchlist: chatWatchlist, history });
@@ -473,6 +479,11 @@ async function handleAskApi(request, response) {
   const quota = await consumeWalletMessage(access.address);
   if (!quota.allowed) {
     sendJson(response, 403, { ok: false, reason: 'daily_limit', message: `This wallet has used all ${quota.limit} messages for today. The agent resets tomorrow.`, limit: quota.limit, used: quota.used });
+    return;
+  }
+  const budget = await consumeGlobalBudget();
+  if (!budget.allowed) {
+    sendJson(response, 503, { ok: false, reason: 'global_budget', message: 'The agent has reached its limit for today. Try again tomorrow.' });
     return;
   }
   const evidence = await gatherEvidence(message, null);
