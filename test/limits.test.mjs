@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { privateKeyToAccount } from 'viem/accounts';
-import { accessChallenge, consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, dayKey, verifyWalletAccess } from '../api/limits.js';
+import { accessChallenge, consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, dayKey, verifyWalletAccess } from '../agent/limits.js';
 
 // A throwaway key that only exists in this test. No funds, no chain history.
 // Public throwaway key (the well known Anvil account #1). Not a secret: it only

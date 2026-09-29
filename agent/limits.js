@@ -8,7 +8,7 @@
 // have sent at least one transaction on BNB Chain, so a freshly made wallet cannot
 // farm free answers.
 
-import { bumpAskUsage } from './store.js';
+import { bumpAskUsage } from '../api/store.js';
 
 export const TELEGRAM_DAILY_LIMIT = Number(process.env.TELEGRAM_DAILY_LIMIT || 10);
 export const WALLET_DAILY_LIMIT = Number(process.env.WALLET_DAILY_LIMIT || 5);

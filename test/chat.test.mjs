@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chatEnabled, chatReply } from '../api/chat.js';
+import { chatEnabled, chatReply } from '../agent/chat.js';
 
 test('chatEnabled follows the presence of DEEPSEEK_API_KEY', () => {
   const saved = process.env.DEEPSEEK_API_KEY;

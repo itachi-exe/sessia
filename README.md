@@ -43,24 +43,25 @@ pm2: sessia-cron (every 5 min)
 
 ```
 api/                    serverless functions
-  index.js              routing, Telegram command layer, /api/ask
-  chat.js               conversational layer: evidence gathering, prompt, reply
-  limits.js             daily allowances: per chat, per wallet, product wide
-  monitor.js            the 5 minute deviation check and alert delivery
-  store.js              watchlists, observations, counters (Blob, KV when configured)
-public/                 the site, served static
+  index.js              routing, Telegram command layer, POST /api/ask
+  monitor.js            the five minute deviation check and alert delivery
+  store.js              watchlists, observations, daily counters
+agent/                  the conversational layer and its guardrails
+  chat.js               evidence gathering, prompt, model call
+  limits.js             per chat, per wallet and product wide allowances
+public/                 the site, served static, plus the shared chain layer
   data.mjs              token registry, oracle and PancakeSwap reads, ticker resolution
 scripts/
   local-server.mjs      run the site locally (npm start)
-  sessia-cron.mjs       pm2 loop that fires /api/monitor every 5 minutes
-test/                   node:test suites
+  sessia-cron.mjs       pm2 loop that fires /api/monitor every five minutes
+test/                   node:test suites, 27 tests
 docs/
   design.md             original product design notes
   ARCHITECTURE.md       module map, request flow, limits, deploy notes
 assets/                 bot photo source
 ```
 
-`api/` and `public/` keep their names on purpose. They are Vercel's conventions, and renaming them means giving up filesystem routing for a rewrite that can silently break `/api/*` in production.
+`api/` and `public/` keep their names on purpose. They are Vercel's conventions, and renaming them means giving up filesystem routing for a rewrite that can silently break `/api/*` in production. `agent/` holds the conversational layer and its guardrails, imported by `api/index.js`. Both the browser and the server read prices through the same `public/data.mjs`, so the site and the bot can never disagree about a number.
 
 ---
 
@@ -196,7 +197,7 @@ Run against the live deployment and the chain, not against fixtures:
 - Alerting, end to end: with the bar tightened to 0.01% the five minute loop fired a real alert (`alertsSent=1`, `session=US MARKET OPEN`) and delivered it to Telegram, then the bar was put back to 1.5%.
 - Audit checks: `/api/monitor` returns 401 without the secret, `/api/ask` replies `cache-control: no-store` with HSTS and no wildcard CORS, a prompt injection asking for the system prompt was refused, and the model key being absent falls back to the command list instead of failing.
 - Limits: the Telegram handler answered ten messages from one chat and refused the eleventh, the twelfth and a `/price` command with `You have used all 10 messages for today`. On the live deployment `POST /api/ask` refused a wallet that had never transacted (`no_transactions`), refused a tampered signature (`bad_signature`), answered five times for a signed wallet with chain history and refused the sixth (`daily_limit`). A live chain read of the PancakeSwap router returned a nonce of 1.
-- Test suite: 26 tests, 26 passing. The old template agent and its public system prompt file were deleted, along with their tests, because the agent is now the server side layer in `api/chat.js`.
+- Test suite: 27 tests, 27 passing. The old template agent and its public system prompt file were deleted, along with their tests, because the agent is now the server side layer in `agent/chat.js`.
 
 ---
 

@@ -4,8 +4,8 @@ import {
   addMonitoredChat, removeMonitoredChat, KV_AVAILABLE, STORAGE_MODE, probeStorage,
   getChatHistory, appendChatMessage, bumpAskUsage,
 } from './store.js';
-import { chatEnabled, chatReply, gatherEvidence } from './chat.js';
-import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from './limits.js';
+import { chatEnabled, chatReply, gatherEvidence } from '../agent/chat.js';
+import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from '../agent/limits.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
