@@ -88,7 +88,7 @@ async function handleBotMessage(chatId, text, username) {
       `*Sessia Commands*\n\n` +
       `/price NVDA — Live oracle price + market session\n` +
       `/watch NVDA TSLA — Set your watchlist\n` +
-      `/threshold 2% — Set alert threshold (default 1.5%)\n` +
+      `/threshold 2% — Alert when the pool drifts 2% from the oracle (default 1.5%)\n` +
       `/session closed — Alert only when US market is closed\n` +
       `/session open — Alert only when US market is open\n` +
       `/session all — Alert any time (default)\n` +
@@ -283,7 +283,7 @@ async function handleBotMessage(chatId, text, username) {
     await addMonitoredChat(chatId);
     const prices = await Promise.all(tickers.map((ticker) => getOraclePrice(ticker).then((p) => p?.price ?? null).catch(() => null)));
     const now = tickers.map((ticker, i) => (prices[i] ? `${ticker} $${Number(prices[i]).toFixed(2)}` : ticker)).join(', ');
-    await reply(chatId, `Watching *${tickers.join(', ')}*. Right now: ${now}. I stay quiet unless one moves ${thresholdPct}% from its reference price, any session. Change the bar with /threshold ${thresholdPct}.`);
+    await reply(chatId, `Watching *${tickers.join(', ')}*. Right now: ${now}. I stay quiet until the pool price drifts ${thresholdPct}% from the APRO oracle, any session. Change the bar with /threshold ${thresholdPct}.`);
     return;
   }
   if (chatEnabled()) {
@@ -397,7 +397,9 @@ async function handleMonitor(request, response) {
   // Verify cron secret or admin key
   const cronSecret = process.env.CRON_SECRET;
   const provided = request.headers['authorization']?.replace('Bearer ', '') || new URL(request.url, 'https://x').searchParams.get('key');
-  if (cronSecret && provided !== cronSecret) {
+  // Fail closed: without a configured secret this endpoint stays shut, otherwise a
+  // missing environment variable would leave alerting open to anyone.
+  if (!cronSecret || provided !== cronSecret) {
     sendJson(response, 401, { ok: false, message: 'unauthorized' }); return;
   }
   try {
@@ -417,6 +419,11 @@ async function handlePriceApi(request, response, url) {
     sendJson(response, 400, { ok: false, message: 'Invalid ticker', supported: SUPPORTED_TICKERS });
     return;
   }
+  const quota = await bumpAskUsage(`price-${clientIp(request)}`, PRICE_IP_DAILY_LIMIT);
+  if (!quota.allowed) {
+    sendJson(response, 429, { ok: false, message: 'Too many price reads from this connection today.' });
+    return;
+  }
   const [oracle, session] = await Promise.all([getOraclePrice(resolved), Promise.resolve(getMarketSession())]);
   sendJson(response, oracle ? 200 : 503, { ok: Boolean(oracle), ticker: resolved, oracle, session });
 }
@@ -427,6 +434,9 @@ const ASK_MAX_CHARS = 400;
 // Coarse backstop so an unsigned flood cannot hammer the function even if it never
 // reaches the wallet check.
 const ASK_IP_DAILY_LIMIT = 40;
+// Prices are read by every visitor and cost one RPC round trip each, so a single
+// connection can only ask for so many in a day.
+const PRICE_IP_DAILY_LIMIT = 200;
 
 function clientIp(request) {
   const forwarded = request.headers['x-forwarded-for'];
