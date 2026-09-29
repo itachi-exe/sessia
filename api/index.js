@@ -2,7 +2,9 @@ import { runMonitoringCycle } from './monitor.js';
 import {
   getWatchlist, setWatchlist, deleteWatchlist,
   addMonitoredChat, removeMonitoredChat, KV_AVAILABLE, STORAGE_MODE, probeStorage,
+  getChatHistory, appendChatMessage,
 } from './store.js';
+import { chatEnabled, chatReply } from './chat.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
@@ -262,8 +264,22 @@ async function handleBotMessage(chatId, text, username) {
     return;
   }
 
-  // Free-text: try to detect ticker mentions or just be helpful
+  // Free text: the conversational layer answers first when it is configured.
+  // Anything it states is grounded in the same on-chain reads the commands use,
+  // and a failed or missing model call falls through to the command list below.
   const mentionedTickers = parseTickers(text);
+  if (chatEnabled()) {
+    const chatWatchlist = await getWatchlist(chatId);
+    const history = await getChatHistory(chatId);
+    const answer = await chatReply({ text, watchlist: chatWatchlist, history });
+    if (answer) {
+      await reply(chatId, answer);
+      await appendChatMessage(chatId, 'user', text);
+      await appendChatMessage(chatId, 'assistant', answer);
+      return;
+    }
+  }
+
   if (mentionedTickers.length) {
     await reply(chatId,
       `I see you mentioned *${mentionedTickers.join(', ')}*.\n\n` +
@@ -278,7 +294,8 @@ async function handleBotMessage(chatId, text, username) {
   // Default
   await reply(chatId,
     `Sessia is monitoring tokenized stocks on BNB Chain.\n\n` +
-    `Commands: /watch /price /simulate /watchlist /threshold /session /help\n\n` +
+    `Ask me anything in plain text, or use a command:\n` +
+    `/watch /price /simulate /watchlist /threshold /session /help\n\n` +
     `Supported assets: ${SUPPORTED_TICKERS.join(', ')}`
   );
 }

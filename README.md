@@ -13,6 +13,7 @@ Sessia monitors tokenized stocks across BNB Chain, detects unusual price deviati
 - **Live oracle prices** via APRO Oracle (BSC) — NVDA, TSLA, META, MSFT, PLTR, QQQ, SPCX
 - **DEX prices** read on-chain from the deepest PancakeSwap V3 pool for each tokenized stock
 - **Personalized watchlists** stored per Telegram chat ID (Vercel Blob private store, or Vercel KV when configured)
+- **Conversational layer** for free text questions, answered by DeepSeek but grounded in the same live on-chain reads. The model never supplies a price, a pool or a fee: those come from the chain, and if a read fails the bot says so instead of guessing.
 - **5-minute monitoring** via pm2 cron process firing Telegram alerts
 - **Session-aware** — knows when NYSE is open, closed, or weekend
 - **Evidence-first** — separates observations, signals, and limitations in every alert
@@ -94,6 +95,7 @@ Copy `.env.example` to `.env.local` and fill in:
 - `TELEGRAM_WEBHOOK_SECRET` — random hex string
 - `BLOB_READ_WRITE_TOKEN` — set automatically when a Vercel Blob store is linked to the project (storage layer; setting `KV_REST_API_URL` + `KV_REST_API_TOKEN` switches storage to Vercel KV)
 - `CRON_SECRET` — protects `/api/monitor`
+- `DEEPSEEK_API_KEY` — key for the conversational layer. With it, free text questions get an answer; without it the bot replies with the command list. `DEEPSEEK_MODEL` overrides the model (default `deepseek-chat`, the non-reasoning variant, chosen for reply latency).
 
 ### 3. Deploy
 

@@ -20,6 +20,7 @@ export const STORAGE_MODE = KV_MODE ? 'vercel-kv' : (BLOB_MODE ? 'vercel-blob' :
 export const KV_AVAILABLE = STORAGE_MODE !== 'unavailable';
 
 const OBSERVATION_LIMIT = 288; // 24 hours at one sample every 5 minutes
+const CHAT_HISTORY_LIMIT = 8;  // rolling turns kept per chat for follow-up questions
 const TOMBSTONE = { deleted: true };
 
 // ---------------------------------------------------------------- Vercel KV (Redis REST)
@@ -92,7 +93,7 @@ async function writeKey(key, value, ttlSeconds) {
   return false;
 }
 
-async function deleteKey(key) {
+export async function deleteKey(key) {
   if (KV_MODE) { await kvRequest('del', key); return; }
   if (BLOB_MODE) {
     try { await del(pathnameFor(key)); return; } catch { /* fall through to tombstone */ }
@@ -192,4 +193,21 @@ export async function probeStorage() {
   if (!wrote) return { mode: STORAGE_MODE, ready: false };
   const readBack = await readKey('health-probe');
   return { mode: STORAGE_MODE, ready: readBack?.stamp === stamp };
+}
+
+// ---------------------------------------------------------------- chat history
+
+export async function getChatHistory(chatId) {
+  if (!chatId) return [];
+  const doc = await readKey(`chat-${chatId}`);
+  return Array.isArray(doc?.messages) ? doc.messages : [];
+}
+
+export async function appendChatMessage(chatId, role, content) {
+  if (!chatId) return [];
+  const messages = await getChatHistory(chatId);
+  messages.push({ role, content: String(content).slice(0, 800) });
+  while (messages.length > CHAT_HISTORY_LIMIT) messages.shift();
+  await writeKey(`chat-${chatId}`, { messages, updatedAt: Date.now() }, 86400 * 14);
+  return messages;
 }
