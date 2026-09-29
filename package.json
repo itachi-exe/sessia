@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "start": "node local-server.mjs"
+    "start": "node scripts/local-server.mjs"
   },
   "dependencies": {
     "@vercel/blob": "^2.8.0",

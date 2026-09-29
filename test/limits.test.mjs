@@ -4,6 +4,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { accessChallenge, consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, dayKey, verifyWalletAccess } from '../api/limits.js';
 
 // A throwaway key that only exists in this test. No funds, no chain history.
+// Public throwaway key (the well known Anvil account #1). Not a secret: it only
+// exists so the signature check can be tested offline.
 const ACCOUNT = privateKeyToAccount('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
 
 test('the daily key is UTC and the challenge binds address and day', () => {

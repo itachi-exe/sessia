@@ -21,3 +21,17 @@ Thumbs.db
 # Build artifacts
 dist/
 .output/
+
+# Local secrets, never commit a key
+secrets/
+*.key
+*-secrets.env
+.env.local
+
+# Working notes and local plans
+.hermes/
+plans/
+
+# Heavy media (brag videos live outside the repo)
+*.mp4
+*.mov

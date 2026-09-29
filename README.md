@@ -39,6 +39,29 @@ pm2: sessia-cron (every 5 min)
 
 **Stack:** Node.js, Vercel Serverless, Vercel Blob, Telegram Bot API, BNB Smart Chain (chain ID 56)
 
+## Repository layout
+
+```
+api/                    serverless functions
+  index.js              routing, Telegram command layer, /api/ask
+  chat.js               conversational layer: evidence gathering, prompt, reply
+  limits.js             daily allowances: per chat, per wallet, product wide
+  monitor.js            the 5 minute deviation check and alert delivery
+  store.js              watchlists, observations, counters (Blob, KV when configured)
+public/                 the site, served static
+  data.mjs              token registry, oracle and PancakeSwap reads, ticker resolution
+scripts/
+  local-server.mjs      run the site locally (npm start)
+  sessia-cron.mjs       pm2 loop that fires /api/monitor every 5 minutes
+test/                   node:test suites
+docs/
+  design.md             original product design notes
+  ARCHITECTURE.md       module map, request flow, limits, deploy notes
+assets/                 bot photo source
+```
+
+`api/` and `public/` keep their names on purpose. They are Vercel's conventions, and renaming them means giving up filesystem routing for a rewrite that can silently break `/api/*` in production.
+
 ---
 
 ## Bot commands
@@ -116,7 +139,7 @@ curl -X POST "https://your-deployment.vercel.app/api/telegram/setup?key=YOUR_SET
 ### 5. Start monitoring cron (on your server)
 
 ```bash
-SESSIA_CRON_SECRET=<your-cron-secret> pm2 start sessia-cron.mjs --name sessia-cron
+SESSIA_CRON_SECRET=<your-cron-secret> pm2 start scripts/sessia-cron.mjs --name sessia-cron
 pm2 save
 ```
 
