@@ -182,6 +182,22 @@ Both doors spend one DeepSeek key, so both are capped per UTC day, and the count
 
 A wallet that only ever received funds reports a nonce of 0 and is refused, which is the point: a freshly generated wallet cannot farm free answers. `TELEGRAM_DAILY_LIMIT` and `WALLET_DAILY_LIMIT` change the numbers without a code change. Refusals cost nothing and are one line.
 
+## Secrets
+
+No credential has ever been committed here. That is enforced rather than promised:
+`scripts/scan-secrets.mjs` walks every blob in every commit and fails the build on a
+match, and it is the first step in CI on every push.
+
+The only key shaped string in the tree is a labelled public test key in
+`test/limits.test.mjs`, needed to exercise the signature check offline. It sits on the
+scanner's allowlist with that reason written next to it.
+
+Real keys live in environment variables on Vercel and in the secrets file on the box
+that runs the alert loop. `.env.example` carries the names with empty values and is
+the only env file in the repository. GitHub secret scanning is unavailable on a
+private repository without GitHub Advanced Security, so the scan above is the guard
+that actually runs.
+
 ## Verification (2026-09-29)
 
 Run against the live deployment and the chain, not against fixtures:
