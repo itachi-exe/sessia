@@ -5,6 +5,7 @@ import {
   getAllMonitoredChatIds, getWatchlist, isAlertSuppressed, suppressAlert, recordObservation,
 } from './store.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS } from '../public/data.mjs';
+import { getMarketStatus, getAssetStatus } from '../public/binance.mjs';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
@@ -24,7 +25,7 @@ function formatAlert({ ticker, oraclePrice, deviationPct, session, sim, token })
   const direction = deviationPct > 0 ? '▲' : '▼';
   const absDeviation = Math.abs(deviationPct).toFixed(2);
   const lines = [
-    `🔔 *SESSIA ALERT — ${ticker}/${token.name}*`,
+    `🔔 *SESSIA ALERT · ${ticker}/${token.name}*`,
     ``,
     `*Deviation:* ${direction} ${absDeviation}% vs APRO reference`,
     `*Reference price:* $${oraclePrice.price.toFixed(2)} (${Math.round(oraclePrice.ageSeconds / 60)}min old)`,
@@ -60,6 +61,13 @@ async function checkTicker(ticker) {
     ? ((dexPrice - oraclePrice.price) / oraclePrice.price) * 100
     : null;
 
+  // A single stock can stop trading while the rest of the market is open: halt,
+  // earnings window, dividend or split. Binance reports that per asset, so the
+  // monitor never reads a paused venue as a signal.
+  const assetStatus = dexAddress
+    ? await getAssetStatus({ address: dexAddress }).catch(() => null)
+    : null;
+
   const sim = (dexPrice && deviationPct !== null)
     ? simulateTrade({
       refPrice: oraclePrice.price,
@@ -70,11 +78,18 @@ async function checkTicker(ticker) {
     })
     : null;
 
-  return { ticker, oraclePrice, dexPrice, dexQuote, deviationPct, sim, token };
+  return { ticker, oraclePrice, dexPrice, dexQuote, deviationPct, sim, token, assetStatus };
 }
 
 export async function runMonitoringCycle() {
-  const session = getMarketSession();
+  // Session state comes from Binance Web3, so premarket, postmarket and overnight
+  // are told apart instead of being flattened into one closed bucket. Falls back
+  // to the local clock when that read fails.
+  const live = await getMarketStatus().catch(() => null);
+  const local = getMarketSession();
+  const session = live
+    ? { ...local, label: live.label, open: live.openState, status: live.status, source: 'Binance Web3' }
+    : { ...local, source: 'local clock' };
 
   // Pre-fetch all oracle prices and record observations
   const priceResults = await Promise.allSettled(
@@ -118,6 +133,8 @@ export async function runMonitoringCycle() {
     for (const ticker of watchlist.tickers) {
       const data = prices[ticker];
       if (!data?.deviationPct) continue;
+      // Paused venue, not a signal.
+      if (data.assetStatus?.reasonCode && data.assetStatus.reasonCode !== 'TRADING') continue;
       if (Math.abs(data.deviationPct) < threshold) continue;
 
       // Check cooldown

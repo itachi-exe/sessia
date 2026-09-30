@@ -20,6 +20,13 @@ are thin, young, and easy to misread. The interesting question is not where the 
 been, it is whether the number in front of you is the number the asset is actually worth.
 Sessia answers that with the chain itself: the pool, the oracle, the session, the spread.
 
+**bStocks is the asset universe here.** Sessia is built on the bStocks tokens Binance
+issues on chain 56. Every ticker in `public/data.mjs` carries its bStocks contract, the
+on chain reads resolve against that contract, and the address list is checked against the
+one Binance's own RWA registry publishes for the same ticker (see
+`scripts/binance-smoke.mjs`). xStocks and Ondo are read as well, because the same stock
+issued three times on one chain is the comparison a researcher actually needs.
+
 Three ideas shape the product:
 
 1. **Evidence, not opinion.** Every answer quotes the reads behind it, with the block-fresh
@@ -73,7 +80,9 @@ Telegram and the site run the same agent over the same reads. The difference is 
 
 | Command | What it does |
 | --- | --- |
-| `/price NVDA` | the APRO oracle price, the pool price, and the gap between them |
+| `/price NVDA` | the APRO oracle price, the session, and every issuer of that stock on BNB Chain |
+| `/venues NVDA` | the same stock across bStocks, xStocks and Ondo: price, holders, 24h volume, and how far apart they are |
+| `/stocks` | the tokenized stock universe Binance tracks on BNB Chain, grouped by issuer (search with `/stocks NVDA`) |
 | `/threshold 1.5` | set the divergence that should trigger an alert for this chat |
 | `/session` | whether the US session is open, pre-market, after hours, or closed |
 | `/watchlist` | what this chat is watching |
@@ -82,6 +91,17 @@ Telegram and the site run the same agent over the same reads. The difference is 
 | `/unlink` | break that link |
 | `/stop` | stop monitoring |
 | `/help` | the list, and where the numbers come from |
+
+### Issuers on one chain
+
+The same stock is issued more than once on BNB Chain, and the three issues do not trade at
+the same price. `/venues NVDA` prices all of them side by side and reports the spread. On
+the day this was written that spread was 0.08% on NVDA, 2.16% on TSLA and 8.51% on PLTR,
+which is the difference between a tight market and a stale quote nobody has taken yet.
+
+The alert engine reads the same per asset state, so a venue that Binance reports as
+anything other than `TRADING` (a halt, an earnings window, a corporate action) is never
+read as a dislocation.
 
 ### The alert engine
 
@@ -107,6 +127,31 @@ anything on its own, because anybody can type anybody's address.
 
 ---
 
+## Agent access (BNB Agent Studio)
+
+Sessia is not only something you talk to. It is a service another agent can find, hire and
+pay, using the BNB Agent Studio stack as the Studio SDK defines it.
+
+| Endpoint | What it is |
+| --- | --- |
+| `GET /.well-known/agent-card.json` | EIP-8004 registration file: name, services, the capability on sale, the price, and the data URI the identity registry stores |
+| `POST /api/agent/task` | ERC-8183 job interface: takes a job description, answers with a deliverable manifest whose hash is the hash a buyer submits on chain |
+| `GET /api/agent/research?ticker=NVDA` | The priced read. 402 with an x402 v2 challenge until it is paid, the research note once it settles |
+
+One research call costs 0.05 U on BNB Chain and settles through a facilitator over EIP-3009.
+The seller checks the chain, the payee, the amount, the expiry and the envelope shape itself
+before the facilitator is asked to recover the signature. With no payee configured the
+endpoint answers 503 and says what it would have charged, rather than pretending a call was
+paid for.
+
+The agent page shows the same card live, in the rail: discovery path, task path, price per
+call.
+
+Why it is shaped this way, what the Studio CLI switches on, and how to verify it without a
+wallet: [docs/AGENT-STUDIO.md](docs/AGENT-STUDIO.md).
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -119,9 +164,10 @@ flowchart TB
   ASK --> GATE
   LINK --> CODE[Single-use code, 15 minutes]
   GATE --> CHAT[agent/chat.js]
-  CHAT --> EV[Evidence: pool, oracle, session]
+  CHAT --> EV[Evidence: pool, oracle, session, issuer board]
   EV --> RPC[(BNB Chain RPC)]
   EV --> ORACLE[(APRO oracle feed)]
+  EV --> BW3[(Binance Web3 RWA read)]
   CHAT --> STORE[(Vercel Blob)]
   CODE --> STORE
   CRON[scripts/sessia-cron.mjs, every 5 minutes] --> MON[/api/monitor/]
@@ -146,6 +192,19 @@ flowchart TB
 | `api/store.js` | the storage driver: Vercel Blob in production, files locally, memory in tests |
 | `agent/chat.js` | a question plus evidence becomes one grounded answer |
 | `agent/limits.js` | per chat, per wallet, per connection, product-day allowances |
+| `agent/w3w.js` | the signed Binance Web3 API path: quotes and swaps, switched on by key |
+| `agent/agent-card.js` | the EIP-8004 registration file and the agent card served at the well known path |
+| `agent/erc8183.js` | the job wire format: parse a description, build a deliverable manifest and its hash |
+| `agent/x402.js` | the paywall: priced challenge, envelope parsing, terms checks, facilitator verify |
+| `agent/canonical.js` | canonical JSON and keccak hashing, byte-identical to the Studio SDK |
+| `public/binance.mjs` | the Binance Web3 RWA read: registry, session, per asset state, prices per issuer |
+
+The Binance Web3 reads are split on purpose. Market data (registry, session state, issuer
+prices, candles) comes from the wallet-direct surface and needs no credentials, so the
+product works with an empty environment. The signed endpoints (aggregated quotes, swaps)
+live behind `agent/w3w.js` and turn on the moment `W3W_API_KEY` and `W3W_SECRET_KEY` are
+set. Without them, `/api/health` reports `"web3ApiSigned": false` and the quote path is
+simply absent rather than pretending to work.
 
 What it deliberately does not have: no private keys, no signing, no contract writes, and no
 code path that can move an asset. The health endpoint reports `"walletExecution": false`,
@@ -167,9 +226,25 @@ npm start
 The README screenshots come from `tests/readme_shots.py`, which drives a browser against a
 running deploy and writes into `docs/screenshots/`.
 
+Two more scripts are worth knowing:
+
+```
+node scripts/binance-smoke.mjs NVDA TSLA PLTR   # live reads, with latency, for docs/DEVEX-REPORT.md
+node scripts/verify-api.mjs                     # drives the real handler: health, price, three bot commands, the agent surface
+```
+
+`verify-api.mjs` boots `api/index.js` in process with mocked requests, so the price path
+and the bot commands can be read end to end without a deploy, a Telegram token or a
+webhook. It is the check that says the wiring is real.
+
 The agent needs a model key and, for shared storage, a Blob token. Telegram needs the bot
 token and the webhook secret; the alert loop needs its own secret and the deployed URL.
-`.env.example` lists every name with an empty value, and it is the only env file here.
+The signed Binance Web3 endpoints need `W3W_API_KEY` and `W3W_SECRET_KEY`, and they are
+optional: everything else works without them. The agent identity and the paywall need
+`SESSIA_AGENT_ID`, `SESSIA_IDENTITY_REGISTRY`, `SESSIA_AGENT_CHAIN_ID`, `X402_PAY_TO` and
+`X402_FACILITATOR_URL`, and they are optional too: without them the card still serves and
+the priced route says what it would charge. `.env.example` lists every name with an empty
+value, and it is the only env file here.
 
 ---
 
@@ -177,11 +252,13 @@ token and the webhook secret; the alert loop needs its own secret and the deploy
 
 | Check | State |
 | --- | --- |
-| Tests | 32 passing through `node:test`, no network in the suite |
+| Tests | 56 passing through `node:test`, no network in the suite |
+| Live wiring | `scripts/verify-api.mjs` drives the deployed handler in process, 18 checks: health, price, `/price`, `/venues`, `/stocks`, `/help`, the agent card, the 402 gate, the job route |
+| Live data | `scripts/binance-smoke.mjs` prints the real registry size, the session state and the per issuer prices with latency |
 | Credentials | a scanner walks every blob in every commit and runs first in CI |
 | Injection | the agent refuses to print its instructions or any key |
 | Wallet gate | a dated signature, plus one real transaction on BNB Chain |
-| Failures | closed: the monitor answers 401 without its secret, ask 403 without a wallet |
+| Failures | closed: the monitor answers 401 without its secret, ask 403 without a wallet; a dead Binance read degrades to an empty board instead of failing the answer |
 | Execution | none, on any path |
 | Allowances | 10 per chat, 5 per wallet, 40 and 200 per connection, 500 product wide, daily |
 
@@ -194,9 +271,13 @@ token and the webhook secret; the alert loop needs its own secret and the deploy
 - [x] A site agent behind a wallet signature, with the gate explained on the page
 - [x] A monitor loop that alerts on divergence from the oracle
 - [x] One conversation per wallet, shared between the chat and the site
+- [x] The full tokenized stock universe on BNB Chain, with every issuer of a ticker priced side by side
+- [x] Session and per asset state from Binance Web3, so premarket, overnight and halts are told apart
+- [x] An agent surface other agents can hire: EIP-8004 card, ERC-8183 job interface, x402 priced read
+- [ ] Register the agent identity on chain and switch the paywall on, once a payee address exists
 - [ ] A repeat-offender list behind the allowances
 - [ ] The last secrets out of query strings
-- [ ] A second price venue to compare against the same oracle
+- [ ] Swap the signed Web3 quote path on, once an API key is issued
 
 <div align="center"><sub>Sessia is research, not advice. Nothing here signs for you.</sub></div>
 

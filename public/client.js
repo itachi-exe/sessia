@@ -74,7 +74,8 @@ refreshSimulation(); renderWatchlist();
 installGlobalErrorHandling(() => toast('Something did not load. Please try again.'));
 
 // The investigation on this page is a recorded scenario. This strip is not: it reads
-// the APRO feed through /api/price, the same source the agent and the bot use.
+// the APRO feed and the Binance Web3 RWA read through /api/price, the same sources
+// the agent and the bot use.
 async function refreshTickerStrip() {
   const strip = $('.ticker');
   if (!strip) return;
@@ -83,13 +84,31 @@ async function refreshTickerStrip() {
       const response = await fetch(`/api/price?ticker=${ticker}`, { cache: 'no-store' });
       const data = await response.json();
       if (!data?.ok || !data.oracle?.price) return null;
-      return { ticker, price: Number(data.oracle.price), session: data.session?.label ?? '' };
+      return {
+        ticker,
+        price: Number(data.oracle.price),
+        session: data.session?.label ?? '',
+        venues: data.venues?.venues ?? [],
+        spreadPct: data.venues?.spreadPct ?? null,
+      };
     } catch { return null; }
   }));
-  if (!live.some(Boolean)) return;
-  strip.innerHTML = '<span>LIVE / APRO FEED</span>' + live
-    .filter(Boolean)
+  const priced = live.filter(Boolean);
+  if (!priced.length) return;
+  strip.innerHTML = '<span>LIVE / APRO + BINANCE WEB3</span>' + priced
     .map((entry) => `<strong>${entry.ticker}</strong><b>$${entry.price.toFixed(2)}</b><em>${escapeHtml(entry.session)}</em>`)
     .join('<span class="divider"></span>');
+
+  // Same stock, several issuers: the spread between them is the read worth showing.
+  const compared = priced.find((entry) => entry.venues.length > 1);
+  if (!compared) return;
+  const issuers = compared.venues
+    .map((venue) => `${escapeHtml(venue.issuer)} $${Number(venue.price).toFixed(2)}`)
+    .join(' · ');
+  const spread = Number.isFinite(compared.spreadPct) ? ` · ${compared.spreadPct}% apart` : '';
+  const line = document.createElement('span');
+  line.className = 'issuer-line';
+  line.innerHTML = `${escapeHtml(compared.ticker)} ISSUERS: ${issuers}${spread}`;
+  strip.insertAdjacentElement('afterend', line);
 }
 refreshTickerStrip();

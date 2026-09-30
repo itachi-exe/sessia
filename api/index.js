@@ -8,6 +8,11 @@ import {
 import { chatEnabled, chatReply, gatherEvidence } from '../agent/chat.js';
 import { consumeGlobalBudget, consumeTelegramMessage, consumeWalletMessage, verifyWalletAccess } from '../agent/limits.js';
 import { getOraclePrice, getPancakeQuote, simulateTrade, getMarketSession, TOKENS, SUPPORTED_TICKERS, resolveTicker } from '../public/data.mjs';
+import { getCompanyProfile, getMarketStatus, getRwaTokens, getVenueBoard, binanceHealth } from '../public/binance.mjs';
+import { w3wConfigured } from '../agent/w3w.js';
+import { A2A_WELL_KNOWN_PATH, buildAgentCard } from '../agent/agent-card.js';
+import { PAYMENT_HEADER, PRICE_USD, challenge, paymentsConfigured, verifyPayment } from '../agent/x402.js';
+import { JobError, buildDeliverable, parseJobDescription } from '../agent/erc8183.js';
 
 const BOT_USERNAME = 'Sessia_BNBAI_bot';
 const TELEGRAM_API = 'https://api.telegram.org';
@@ -38,6 +43,22 @@ async function telegram(method, body) {
 
 async function reply(chatId, text) {
   return telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'Markdown' });
+}
+
+// The same stock is issued more than once on the same chain. When a ticker has
+// several issuers, the read worth showing is the comparison between them.
+function venueLines(board, { full = false } = {}) {
+  if (!board?.venues?.length) return '';
+  return board.venues
+    .map((venue) => {
+      const price = Number.isFinite(venue.price) ? `$${venue.price.toFixed(2)}` : 'no live price';
+      const state = venue.reasonCode && venue.reasonCode !== 'TRADING' ? ` (${venue.reasonLabel || venue.reasonCode})` : '';
+      if (!full) return `${venue.issuer} ${venue.symbol} ${price}${state}`;
+      const holders = Number.isFinite(venue.holders) ? `${venue.holders} holders` : 'holders unknown';
+      const vol = Number.isFinite(venue.volume24h) ? `24h ${Math.round(venue.volume24h).toLocaleString('en-US')}` : '24h unknown';
+      return `${venue.issuer} *${venue.symbol}* ${price}${state}\n   ${holders}, ${vol}`;
+    })
+    .join('\n');
 }
 
 // Parse ticker list from user message
@@ -105,18 +126,20 @@ async function handleBotMessage(chatId, text, username) {
   if (lower.startsWith('/help')) {
     await reply(chatId,
       `*Sessia Commands*\n\n` +
-      `/price NVDA — Live oracle price + market session\n` +
-      `/watch NVDA TSLA — Set your watchlist\n` +
-      `/threshold 2% — Alert when the pool drifts 2% from the oracle (default 1.5%)\n` +
-      `/session closed — Alert only when US market is closed\n` +
-      `/session open — Alert only when US market is open\n` +
-      `/session all — Alert any time (default)\n` +
-      `/watchlist — Show your current watchlist\n` +
-      `/simulate NVDA 100 — Simulate a $100 trade\n` +
-      `/link — Link this chat to your wallet so both share one conversation\n` +
-      `/unlink — Break that link\n` +
-      `/stop — Stop monitoring\n\n` +
-      `_Sessia uses APRO Oracle on BSC for reference prices._`
+      `/price NVDA: oracle price, session, every issuer on BNB\n` +
+      `/venues NVDA: same stock, all issuers side by side\n` +
+      `/stocks: tokenized stocks Binance tracks on BNB (search: /stocks NVDA)\n` +
+      `/watch NVDA TSLA: set your watchlist\n` +
+      `/threshold 2%: alert when the pool drifts 2% from the oracle (default 1.5%)\n` +
+      `/session closed: alert only when US market is closed\n` +
+      `/session open: alert only when US market is open\n` +
+      `/session all: alert any time (default)\n` +
+      `/watchlist: show your current watchlist\n` +
+      `/simulate NVDA 100: simulate a $100 trade\n` +
+      `/link: link this chat to your wallet so both share one conversation\n` +
+      `/unlink: break that link\n` +
+      `/stop: stop monitoring\n\n` +
+      `_Reference prices from APRO Oracle on BSC. Issuer data and session state from Binance Web3._`
     );
     return;
   }
@@ -161,20 +184,86 @@ async function handleBotMessage(chatId, text, username) {
       await reply(chatId, `Supported tickers:\n${tickerList()}\n\nUsage: /price NVDA`);
       return;
     }
-    const [oracle, session] = await Promise.all([getOraclePrice(ticker), Promise.resolve(getMarketSession())]);
+    const [oracle, liveSession, board] = await Promise.all([
+      getOraclePrice(ticker),
+      getMarketStatus().catch(() => null),
+      getVenueBoard(ticker).catch(() => null),
+    ]);
     if (!oracle) {
       await reply(chatId, `⚠️ Could not fetch price for *${ticker}* right now. Oracle may be updating. Try again in a minute.`);
       return;
     }
     const token = TOKENS[ticker];
+    const blocks = [
+      `*${ticker} / ${token.name}*`,
+      ``,
+      `*Reference price:* $${oracle.price.toFixed(2)}`,
+      `*Source:* ${oracle.source}`,
+      `*Updated:* ${Math.round(oracle.ageSeconds / 60)} min ago`,
+      `*Session:* ${liveSession?.label ?? getMarketSession().label}`,
+    ];
+    if (oracle.stale) blocks.push(``, `⚠️ _Data may be stale, oracle not updated recently._`);
+    if (board?.venues?.length) blocks.push(``, `*Issuers on BNB:*`, venueLines(board));
+    blocks.push(``, `_Use /simulate ${ticker} 100 to model a $100 trade._`);
+    await reply(chatId, blocks.join('\n'));
+    return;
+  }
+
+  // /venues TICKER — every issuer of the same stock on BNB Chain, priced side by side
+  if (lower.startsWith('/venues')) {
+    const parts = text.trim().split(/\s+/);
+    const requested = (parts[1] || '').toUpperCase().replace(/^[$#]/, '');
+    if (!requested) {
+      await reply(chatId, `Usage: /venues NVDA\n\nShows every issuer of the same stock on BNB Chain: price, holders and 24h volume for each.`);
+      return;
+    }
+    const board = await getVenueBoard(requested).catch(() => null);
+    if (!board?.venues?.length) {
+      await reply(chatId, `No tokenized *${requested}* in Binance's RWA registry on BNB Chain. Try /stocks ${requested} to search the full list.`);
+      return;
+    }
+    const spread = Number.isFinite(board.spreadPct) ? `\nIssuers are *${board.spreadPct}%* apart.\n` : '';
     await reply(chatId,
-      `*${ticker} / ${token.name}*\n\n` +
-      `*Reference price:* $${oracle.price.toFixed(2)}\n` +
-      `*Source:* ${oracle.source}\n` +
-      `*Updated:* ${Math.round(oracle.ageSeconds / 60)} min ago\n` +
-      `*Session:* ${session.label}\n` +
-      `${oracle.stale ? '⚠️ _Data may be stale — oracle not updated recently._' : ''}\n\n` +
-      `_Use /simulate ${ticker} 100 to model a $100 trade._`
+      `*${board.ticker} on BNB Chain*\n\n` +
+      `${venueLines(board, { full: true })}\n` +
+      `${spread}\n` +
+      `*Session:* ${board.session?.label ?? 'unknown'}\n` +
+      `_Read from Binance Web3 market data. A wider spread usually means thinner on chain liquidity, not a better deal._`
+    );
+    return;
+  }
+
+  // /stocks [QUERY] — the tokenized stock universe Binance tracks on BNB Chain
+  if (lower.startsWith('/stocks')) {
+    const catalog = await getRwaTokens().catch(() => []);
+    if (!catalog.length) {
+      await reply(chatId, `The Binance RWA registry is not reachable right now. Try again in a minute.`);
+      return;
+    }
+    const query = text.trim().split(/\s+/).slice(1).join(' ').toUpperCase();
+    if (query) {
+      const hits = catalog
+        .filter((token) => token.ticker.includes(query) || token.symbol.toUpperCase().includes(query) || token.name.toUpperCase().includes(query))
+        .slice(0, 12);
+      if (!hits.length) {
+        await reply(chatId, `Nothing matches *${query}* in the tokenized stock registry.`);
+        return;
+      }
+      await reply(chatId,
+        `*${hits.length} match${hits.length === 1 ? '' : 'es'} for ${query}*\n\n` +
+        hits.map((token) => `${token.issuer} *${token.symbol}* ${token.name || token.ticker}`).join('\n') +
+        `\n\n_Research any of them with /venues SYMBOL._`
+      );
+      return;
+    }
+    const byIssuer = catalog.reduce((acc, token) => {
+      acc[token.issuer] = (acc[token.issuer] || 0) + 1;
+      return acc;
+    }, {});
+    await reply(chatId,
+      `*Tokenized stocks on BNB Chain*\n\n` +
+      Object.entries(byIssuer).map(([issuer, count]) => `${issuer}: ${count} tokens`).join('\n') +
+      `\n\nTotal: *${catalog.length}* tokens tracked by Binance Web3.\nSearch one with /stocks NVDA, then read it with /price or /venues.`
     );
     return;
   }
@@ -485,8 +574,174 @@ async function handlePriceApi(request, response, url) {
     sendJson(response, 429, { ok: false, message: 'Too many price reads from this connection today.' });
     return;
   }
-  const [oracle, session] = await Promise.all([getOraclePrice(resolved), Promise.resolve(getMarketSession())]);
-  sendJson(response, oracle ? 200 : 503, { ok: Boolean(oracle), ticker: resolved, oracle, session });
+  // Three reads, one payload: the oracle feed, the session Binance reports, and one
+  // price per issuer of the same stock on this chain.
+  const [oracle, liveSession, board] = await Promise.all([
+    getOraclePrice(resolved),
+    getMarketStatus().catch(() => null),
+    getVenueBoard(resolved).catch(() => null),
+  ]);
+  const session = liveSession
+    ? { ...liveSession, source: 'Binance Web3' }
+    : { ...getMarketSession(), source: 'local clock' };
+  sendJson(response, oracle ? 200 : 503, { ok: Boolean(oracle), ticker: resolved, oracle, session, venues: board });
+}
+
+// ------------------------------------------------------------ agent commerce
+//
+// Sessia is also a seller. Another agent, a Studio agent doing its own research, pays
+// per call over x402 and gets back a payload that already carries the canonical
+// manifest hash, so the buyer can submit it against an ERC-8183 job without
+// recomputing anything.
+
+function originOf(request) {
+  const proto = String(request.headers['x-forwarded-proto'] || 'https').split(',')[0].trim();
+  const host = String(request.headers['x-forwarded-host'] || request.headers.host || 'sessia-beta.vercel.app')
+    .split(',')[0]
+    .trim();
+  return `${proto}://${host}`;
+}
+
+/** One research read, in the shape a buyer can hash and keep. */
+async function researchNote(ticker) {
+  const address = TOKENS[ticker]?.bstocks?.address ?? null;
+  const [oracle, session, board, company] = await Promise.all([
+    getOraclePrice(ticker).catch(() => null),
+    getMarketStatus().catch(() => null),
+    getVenueBoard(ticker).catch(() => null),
+    getCompanyProfile({ chainId: 56, address }).catch(() => null),
+  ]);
+  return {
+    ticker,
+    as_of: new Date().toISOString(),
+    session: session
+      ? {
+          state: session.status,
+          label: session.label,
+          next_open: session.nextOpenTime ?? null,
+          next_close: session.nextCloseTime ?? null,
+        }
+      : null,
+    oracle: oracle
+      ? {
+          price: oracle.price,
+          source: oracle.source,
+          age_seconds: oracle.ageSeconds,
+          stale: Boolean(oracle.stale),
+        }
+      : null,
+    issuers: board?.venues ?? [],
+    issuer_spread_pct: board?.spreadPct ?? null,
+    company: company ?? null,
+    sources: ['APRO oracle feed', 'PancakeSwap V3 pool on BNB Chain', 'Binance Web3 RWA registry'],
+  };
+}
+
+/**
+ * The paywall, in front of both paid routes: no payee, no sale. A missing header gets
+ * the 402 challenge, a bad one gets the reason it was rejected.
+ */
+async function paidResearch(request, response, { ticker, jobId, chainId, resourcePath }) {
+  const resolved = ticker ? resolveTicker(ticker) : null;
+  if (!resolved) {
+    sendJson(response, 400, { ok: false, error: 'ticker is required, for example ?ticker=NVDA' });
+    return;
+  }
+
+  const resource = `${originOf(request)}${resourcePath}`;
+  const body = challenge({ resource, description: `Research read on ${resolved}` });
+
+  if (!paymentsConfigured()) {
+    sendJson(response, 503, {
+      ok: false,
+      error: 'payment rail not configured',
+      detail: 'X402_PAY_TO and X402_FACILITATOR_URL are unset, so this endpoint has nothing to charge to.',
+      price_usd: PRICE_USD,
+      would_charge: body,
+    });
+    return;
+  }
+
+  const header = request.headers[PAYMENT_HEADER.toLowerCase()] || request.headers['x-payment'];
+  if (!header) {
+    sendJson(response, 402, body);
+    return;
+  }
+
+  const verdict = await verifyPayment({ header, requirement: body.accepts[0] });
+  if (!verdict.ok) {
+    sendJson(response, 402, { ...body, error: `payment rejected: ${verdict.reason}` });
+    return;
+  }
+
+  const note = await researchNote(resolved);
+  const deliverable = buildDeliverable({ jobId, chainId, payload: note, deliverableUrl: resource });
+  if (typeof verdict.settle === 'function') await verdict.settle().catch(() => null);
+
+  sendJson(response, 200, {
+    ...note,
+    deliverable: {
+      manifest: deliverable.manifest,
+      manifest_hash: deliverable.hash,
+      opt_params: deliverable.optParams,
+      payer: verdict.payer,
+    },
+  });
+}
+
+/** POST /api/agent/task: an ERC-8183 job description in, a deliverable manifest out. */
+async function handleAgentTask(request, response, url) {
+  let description = {};
+  if (request.method === 'POST') {
+    const raw = await readBody(request);
+    if (raw) {
+      try {
+        description = JSON.parse(raw);
+      } catch {
+        sendJson(response, 400, { ok: false, error: 'body is not valid JSON' });
+        return;
+      }
+    }
+  }
+  const query = {
+    job_id: url.searchParams.get('job_id') ?? undefined,
+    chain_id: url.searchParams.get('chain_id') ?? 56,
+    capability: url.searchParams.get('capability') ?? undefined,
+    input: url.searchParams.get('ticker') ?? url.searchParams.get('input') ?? undefined,
+  };
+  let job;
+  try {
+    job = parseJobDescription({ ...query, ...description });
+  } catch (error) {
+    const detail = error instanceof JobError ? error.message : 'job description rejected';
+    sendJson(response, 400, {
+      ok: false,
+      error: detail,
+      example: {
+        job_id: 42,
+        chain_id: 56,
+        capability: 'stock-research',
+        input: 'NVDA',
+      },
+    });
+    return;
+  }
+  await paidResearch(request, response, {
+    ticker: String(job.input ?? ''),
+    jobId: job.jobId,
+    chainId: job.chainId,
+    resourcePath: url.pathname + url.search,
+  });
+}
+
+/** GET /api/agent/research: the plain x402 resource, the shape the buyer demo expects. */
+async function handleAgentResearch(request, response, url) {
+  await paidResearch(request, response, {
+    ticker: url.searchParams.get('ticker') ?? url.searchParams.get('symbol') ?? '',
+    jobId: Number(url.searchParams.get('job_id') ?? 0),
+    chainId: Number(url.searchParams.get('chain_id') ?? 56),
+    resourcePath: url.pathname + url.search,
+  });
 }
 
 // ---------------------------------------------------------------- web agent
@@ -591,8 +846,24 @@ export default async function handler(request, response) {
       await handleLinkApi(request, response);
       return;
     }
+    // The agent surface: a discovery document at the well known path, the ERC-8183
+    // task endpoint, and the x402-priced research read.
+    if (url.pathname === A2A_WELL_KNOWN_PATH || url.pathname === '/.well-known/agent.json') {
+      sendJson(response, 200, buildAgentCard({ baseUrl: originOf(request) }));
+      return;
+    }
+    if (url.pathname === '/api/agent/task') {
+      await handleAgentTask(request, response, url);
+      return;
+    }
+    if (url.pathname === '/api/agent/research') {
+      await handleAgentResearch(request, response, url);
+      return;
+    }
+
     if (url.pathname === '/api/health') {
       const storage = await probeStorage();
+      const binance = await binanceHealth();
       sendJson(response, 200, {
         status: 'ready', chainId: 56,
         dataMode: storage.ready ? `live-${storage.mode}` : 'stateless',
@@ -603,6 +874,8 @@ export default async function handler(request, response) {
         kvConfigured: KV_AVAILABLE,
         walletExecution: false,
         supportedAssets: SUPPORTED_TICKERS,
+        binanceMarketData: binance,
+        web3ApiSigned: w3wConfigured(),
       });
       return;
     }
