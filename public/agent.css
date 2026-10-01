@@ -6,3 +6,11 @@
 .machine span{display:block;font:400 9px 'DM Mono',monospace;letter-spacing:.1em;color:#6f6f68}
 .machine code{font:400 10.5px 'DM Mono',monospace;color:#f5f5ef;word-break:break-all}
 .machine a{color:var(--yellow);text-decoration:none}
+
+.machine{margin-top:35px}
+.machine small{padding:0 10px;display:block;margin-bottom:8px}
+.machine div{border-bottom:1px solid #2d2e28;padding:9px 10px}
+.machine span{display:block;font:400 9px 'DM Mono',monospace;letter-spacing:.1em;color:#888981;margin-bottom:4px}
+.machine code{display:block;font:400 10.5px 'DM Mono',monospace;color:#f5f5ef;word-break:break-all}
+.machine a{color:var(--yellow);text-decoration:none}
+.machine a:hover code{color:var(--yellow)}

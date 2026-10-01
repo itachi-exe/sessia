@@ -11,8 +11,9 @@ if (price) {
         return;
       }
       const x402 = card.x402 || {};
-      price.textContent = `${x402.priceUsd} ${x402.symbol} per call`;
-      price.title = `${x402.network} · ${card.hash}`;
+      const amount = x402.priceUsd != null ? `${x402.priceUsd} ${x402.symbol || 'U'}` : 'not configured';
+      price.textContent = `${amount} per call`;
+      price.title = [x402.network, card.name, card.hash].filter(Boolean).join(' | ');
     })
     .catch(() => {
       price.textContent = 'unavailable';

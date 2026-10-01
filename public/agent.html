@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#101010" />
   <title>Sessia Agent</title>
-  <link rel="stylesheet" href="/agent.css" />
+  <link rel="stylesheet" href="/agent.css?v=3" />
   <link rel="stylesheet" href="/logo.css" />
   <link rel="stylesheet" href="/telegram.css" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -28,7 +28,7 @@
       <button class="disconnect" id="disconnect">Disconnect wallet</button>
       <div class="machine" aria-label="Machine interface">
         <small>MACHINE INTERFACE</small>
-        <div><span>DISCOVERY</span><code>/.well-known/agent-card.json</code></div>
+        <div><span>DISCOVERY</span><a href="/.well-known/agent-card.json"><code>/.well-known/agent-card.json</code></a></div>
         <div><span>TASK</span><code>POST /api/agent/task</code></div>
         <div><span>PRICED READ</span><code>GET /api/agent/research</code></div>
         <div><span>PRICE PER CALL</span><code id="machine-price">reading…</code></div>
@@ -45,6 +45,6 @@
   </main>
   <dialog class="telegram-dialog" id="telegram-dialog"><button class="dialog-close" id="close-telegram" aria-label="Close Telegram connection">×</button><span class="kicker">TELEGRAM NOTIFICATIONS</span><h2>Link your Telegram.</h2><p>One conversation for one wallet. Press the button below, then press Start in Telegram: Sessia binds this wallet to that chat, so what you ask here and what you ask the bot stay in the same thread.</p><p class="telegram-code" id="telegram-code">No code yet.</p><button class="dialog-primary" id="save-telegram">Make a link code</button><small id="telegram-status">The code is signed by your wallet and expires in fifteen minutes.</small></dialog>
   <script type="module" src="/agent-client.js"></script>
-  <script type="module" src="/agent-access.js"></script>
+  <script type="module" src="/agent-access.js?v=3"></script>
 </body>
 </html>
